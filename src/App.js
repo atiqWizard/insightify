@@ -1,24 +1,20 @@
-import logo from './logo.svg';
 import './App.css';
+import { useState } from 'react';
+import ClusterBarChart from './components/ClusterSegments';
+import { ClusterProvider } from './components/ClusterContext';
+import InteractiveLineChart from './components/Line2';
+import LineChart from './components/Line';
 
 function App() {
+  
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
-    </div>
+    <ClusterProvider>
+      <div style={{margin: '10px 80px'}}>
+        {/* <LineChart /> */}
+        <InteractiveLineChart />
+        <ClusterBarChart />
+      </div>
+    </ClusterProvider>
   );
 }
 
