@@ -6,20 +6,24 @@ import "rc-slider/assets/index.css";
 import "chart.js/auto";
 import { useClusterContext } from "./ClusterContext";
 import { Chart as ChartJS, registerables } from "chart.js";
-import zoomPlugin from "chartjs-plugin-zoom";
-import "chartjs-plugin-dragdata";
+import zoomPlugin, { zoom } from "chartjs-plugin-zoom";
+// import "chartjs-plugin-dragdata";
+// import dragDataPlugin from "chartjs-plugin-dragdata";
 
+// ChartJS.register(...registerables, zoomPlugin, dragDataPlugin);
 ChartJS.register(...registerables, zoomPlugin);
+// ChartJS.register(zoomPlugin);
 
 const LineChart = () => {
   const { selectedClusters } = useClusterContext();
-  const [yAxisRange, setYAxisRange] = useState([-1.0, 1.0]);
+  const [yAxisRange, setYAxisRange] = useState([-0.5, 1.0]);
   const [customYMin, setCustomYMin] = useState(yAxisRange[0]);
   const [customYMax, setCustomYMax] = useState(yAxisRange[1]);
   const [timeRange, setTimeRange] = useState([0, 499]);
   const [customTimeStart, setCustomTimeStart] = useState(timeRange[0]);
   const [customTimeEnd, setCustomTimeEnd] = useState(timeRange[1]);
-  const [graphMode, setGraphMode] = useState("pan");
+  const [graphMode, setGraphMode] = useState("Pan");
+  const [selectedMode, setSelectedMode] = useState("Pan View");
   const [chartData, setChartData] = useState({
     labels: [],
     datasets: [],
@@ -37,17 +41,23 @@ const LineChart = () => {
   const [selectedSignal, setSelectedSignal] = useState(null);
   const [modifiedData, setModifiedData] = useState([]);
   const chartRef = useRef(null);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [dropdownPosition, setDropdownPosition] = useState({ x: 0, y: 0 });
 
   const clusterColors = [
-    "rgba(75, 192, 192, 1)",
-    "rgba(54, 162, 235, 1)",
-    "rgba(255, 206, 86, 1)",
-    "rgba(255, 99, 132, 1)",
-    "rgba(153, 102, 255, 1)",
-    "rgba(255, 159, 64, 1)",
-    "rgba(199, 199, 199, 1)",
-    "rgba(255, 206, 86, 1)",
-  ];
+    "rgba(75, 192, 192, 1)",    // Teal
+    "rgba(54, 162, 235, 1)",    // Blue
+    "rgba(255, 99, 132, 1)",    // Red
+    "rgba(255, 206, 86, 1)",    // Yellow
+    "rgba(153, 102, 255, 1)",   // Purple
+    "rgba(255, 159, 64, 1)",    // Orange
+    "rgba(99, 255, 132, 1)",    // Light Green
+    "rgba(102, 153, 255, 1)",   // Light Blue
+    "rgba(255, 102, 178, 1)",   // Pink
+    "rgba(204, 255, 102, 1)",   // Lime
+    "rgba(102, 255, 255, 1)",   // Cyan
+    "rgba(255, 153, 102, 1)"    // Peach
+];
 
   useEffect(() => {
     const csvFilePath = `${process.env.PUBLIC_URL}/kmeans_output1.csv`;
@@ -87,20 +97,24 @@ const LineChart = () => {
                   label: "Peak to Peak with Clusters",
                   data: dataPoints,
                   borderWidth: 2,
+                  tension: 0.4, // Ensure tension is defined here
                   segment: {
                     borderColor: (ctx) => {
-                      const clusterId = ctx.p0?.raw?.clusterId;
-                      const baseColor =
-                        clusterColors[clusterId % clusterColors.length];
+                      const clusterId = ctx.p0?.raw?.clusterId; // Get clusterId for the segment
+                      const baseColor = clusterColors[clusterId % clusterColors.length];
+                  
+                      // Apply transparency for non-selected clusters
                       if (
-                        selectedClusters.length === 0 ||
+                        selectedClusters.length === 0 || 
                         selectedClusters.includes(clusterId)
                       ) {
                         return baseColor;
                       }
-                      return baseColor.replace("1)", "0.2)");
+                      return baseColor.replace("1)", "0.2)"); // Fade for non-selected clusters
                     },
                   },
+                  
+                  
                   pointRadius: 0,
                 },
               ],
@@ -158,24 +172,76 @@ const LineChart = () => {
   };
 
   const handleChartClick = (e) => {
-    const chart = chartRef.current?.chart;
-    if (!chart) return;
+    e.preventDefault(); // Prevents default context menu on right-click
+    e.stopPropagation(); // Stops the event from propagating to parent elements
 
-    const points = chart.getElementsAtEventForMode(
-      e.native,
-      "nearest",
-      { intersect: true },
-      false
-    );
+    const chart = chartRef.current;
+    if (chart) {
+      const points = chart.getElementsAtEventForMode(
+        e.nativeEvent, // Use nativeEvent for the actual DOM event
+        "nearest",
+        { intersect: false, distance: 30 }, // Adjust distance to detect nearby points
+        false
+      );
 
-    if (points.length > 0) {
-      const clickedDataPoint = points[0].element;
-      const dataIndex = clickedDataPoint.index;
-      const selectedPoint = chartData.datasets[0].data[dataIndex];
+      if (e.nativeEvent.which === 1 && points && points.length > 0) {
+        // Check for right-click and points length
+        const dataIndex = points[0].index;
+        const selectedPoint = chartData.datasets[0].data[dataIndex];
 
-      setSelectedSignal(selectedPoint);
+        // Calculate the nearest interval points
+        const interval = 10; // In seconds
+        const lowerBound = Math.floor(selectedPoint.x / interval) * interval;
+        const upperBound = lowerBound + interval;
+
+        setSelectedSignal(selectedPoint);
+        setDropdownPosition({ x: e.clientX, y: e.clientY });
+        setShowDropdown(true);
+      } else {
+        setShowDropdown(false);
+      }
     }
   };
+
+  const handleClusterChange = (newClusterId) => {
+    if (selectedSignal) {
+      // Update the selected signal's clusterId
+      const updatedSignal = { ...selectedSignal, clusterId: newClusterId };
+  
+      setSelectedSignal(updatedSignal); // Update local state
+  
+      // Update the dataset with the new clusterId
+      const updatedData = chartData.datasets[0].data.map((point) =>
+        point.x === selectedSignal.x
+          ? { ...point, clusterId: newClusterId } // Update the clusterId
+          : point
+      );
+      
+      
+  
+      setChartData((prevChartData) => ({
+        ...prevChartData,
+        datasets: [
+          {
+            ...prevChartData.datasets[0],
+            data: updatedData,
+          },
+        ],
+      }));
+  
+      // Trigger chart redraw to apply the color changes
+      // console.log("chartRef: ", chartRef)
+      if (chartRef.current?.chart) {
+        chartRef.current.chart.update(); // Explicitly update the chart
+      }
+  
+      // Close the dropdown
+      setShowDropdown(false);
+    }
+  };
+  
+  
+  
 
   const handleYAxisRangeChange = (value) => {
     setYAxisRange(value);
@@ -215,6 +281,7 @@ const LineChart = () => {
               clusterId: row.cluster_id,
             })),
             borderWidth: 2,
+            tension: 0.5,
             segment: {
               borderColor: (ctx) => {
                 const clusterId = ctx.p0?.raw?.clusterId;
@@ -235,19 +302,15 @@ const LineChart = () => {
     return Math.random() * 0.5 + 0.5;
   };
 
-  // Add handler for resetting zoom
   const handleResetZoom = () => {
-    if (chartRef.current?.chart) {
-      chartRef.current.chart.resetZoom();
-      // setCurrentZoom({
-      //   x: { min: undefined, max: undefined },
-      //   y: { min: undefined, max: undefined }
-      // });
+    if (chartRef.current) {
+      chartRef.current.resetZoom();
     }
   };
 
   const chartOptions = {
     maintainAspectRatio: false,
+    // onclick: handleChartClick,
     scales: {
       x: {
         title: {
@@ -268,11 +331,14 @@ const LineChart = () => {
     },
     plugins: {
       zoom: {
-        pan: graphMode === "pan" ? {
-          enabled: true,
-          mode: "xy",
-          onPan: handleZoomUpdate,
-        } : '',
+        pan:
+          graphMode === "pan"
+            ? {
+                enabled: true,
+                mode: "xy",
+                onPan: handleZoomUpdate,
+              }
+            : false,
         zoom: {
           wheel: {
             enabled: true,
@@ -283,76 +349,92 @@ const LineChart = () => {
             enabled: true,
             mode: "xy",
           },
-          drag: graphMode === "zoom" ? {
-            enabled: true,
-            mode: "xy",
-          } : '',
+          drag:
+            graphMode === "zoom"
+              ? {
+                  enabled: true,
+                  mode: "xy",
+                }
+              : false,
         },
       },
-      dragData: {
-        round: 2,
-        onDrag: (e, datasetIndex, index, value) => {
-          // Access the dragged point
-          const draggedPoint = chartData.datasets[datasetIndex].data[index];
-          
-          // Update both X and Y values based on the dragged position
-          draggedPoint.x = e.xValue;  // New X value (start time)
-          draggedPoint.y = e.yValue;  // New Y value (peak-to-peak value)
-  
-          // Check and adjust for potential overlaps with adjacent points
-          const prevPoint = chartData.datasets[datasetIndex].data[index - 1];
-          const nextPoint = chartData.datasets[datasetIndex].data[index + 1];
-  
-          // If the new X position of the dragged point overlaps with the previous point, adjust or remove
-          if (prevPoint && draggedPoint.x <= prevPoint.x) {
-            chartData.datasets[datasetIndex].data.splice(index - 1, 1);
-          }
-  
-          // If the new X position of the dragged point overlaps with the next point, adjust or remove
-          if (nextPoint && draggedPoint.x >= nextPoint.x) {
-            chartData.datasets[datasetIndex].data.splice(index + 1, 1);
-          }
-  
-          // Update chart data
-          setChartData({
-            ...chartData,
-            datasets: [
-              ...chartData.datasets
-            ]
-          });
-        },
-        onDragEnd: (e, datasetIndex, index, value) => {  
-          // Adjust the position in the dataset after drag ends
-          const draggedPoint = chartData.datasets[datasetIndex].data[index];
-          
-          // Adjust for any overlap logic again if needed
-          const prevPoint = chartData.datasets[datasetIndex].data[index - 1];
-          const nextPoint = chartData.datasets[datasetIndex].data[index + 1];
-  
-          if (prevPoint && draggedPoint.x <= prevPoint.x) {
-            chartData.datasets[datasetIndex].data.splice(index - 1, 1); // Remove previous point
-          }
-          if (nextPoint && draggedPoint.x >= nextPoint.x) {
-            chartData.datasets[datasetIndex].data.splice(index + 1, 1); // Remove next point
-          }
-  
-          // Save changes to chart data
-          setChartData({
-            ...chartData,
-            datasets: [
-              ...chartData.datasets.map((dataset, idx) =>
-                idx === datasetIndex ? {
-                  ...dataset,
-                  data: dataset.data
-                } : dataset
-              )
-            ]
-          });
+    },
+    dragData: {
+      round: 2,
+      onDrag: (e, datasetIndex, index, value) => {
+        // Access the dragged point
+        const draggedPoint = chartData.datasets[datasetIndex].data[index];
+
+        console.log("Dragging point:", draggedPoint);
+        console.log("New X value:", e.xValue, "New Y value:", e.yValue);
+
+        // Update both X and Y values based on the dragged position
+        draggedPoint.x = e.xValue; // New X value (start time)
+        draggedPoint.y = e.yValue; // New Y value (peak-to-peak value)
+
+        // Check and adjust for potential overlaps with adjacent points
+        const prevPoint = chartData.datasets[datasetIndex].data[index - 1];
+        const nextPoint = chartData.datasets[datasetIndex].data[index + 1];
+
+        // If the new X position of the dragged point overlaps with the previous point, adjust or remove
+        if (prevPoint && draggedPoint.x <= prevPoint.x) {
+          chartData.datasets[datasetIndex].data.splice(index - 1, 1);
         }
-      }
-    }
+
+        // If the new X position of the dragged point overlaps with the next point, adjust or remove
+        if (nextPoint && draggedPoint.x >= nextPoint.x) {
+          chartData.datasets[datasetIndex].data.splice(index + 1, 1);
+        }
+
+        // Update chart data
+        setChartData({
+          ...chartData,
+          datasets: [...chartData.datasets],
+          tension: 0.5,
+        });
+      },
+      onDragEnd: (e, datasetIndex, index, value) => {
+        // Adjust the position in the dataset after drag ends
+        const draggedPoint = chartData.datasets[datasetIndex].data[index];
+
+        // Adjust for any overlap logic again if needed
+        const prevPoint = chartData.datasets[datasetIndex].data[index - 1];
+        const nextPoint = chartData.datasets[datasetIndex].data[index + 1];
+
+        if (prevPoint && draggedPoint.x <= prevPoint.x) {
+          chartData.datasets[datasetIndex].data.splice(index - 1, 1); // Remove previous point
+        }
+        if (nextPoint && draggedPoint.x >= nextPoint.x) {
+          chartData.datasets[datasetIndex].data.splice(index + 1, 1); // Remove next point
+        }
+
+        // Save changes to chart data
+        setChartData({
+          ...chartData,
+          datasets: [
+            ...chartData.datasets.map((dataset, idx) =>
+              idx === datasetIndex
+                ? {
+                    ...dataset,
+                    data: dataset.data,
+                  }
+                : dataset
+            ),
+          ],
+          tension: 0.5,
+        });
+      },
+    },
   };
-  
+
+  // Update mode and selected mode
+  const handleSetMode = (mode, modeLabel) => {
+    // Save current zoom level before switching modes
+    handleZoomUpdate();
+
+    setGraphMode(mode);
+    setSelectedMode(modeLabel);
+  };
 
   return (
     <div>
@@ -392,8 +474,30 @@ const LineChart = () => {
           />
         </label>
         <button onClick={handleResetZoom}>Reset Zoom</button>
-        <button onClick={() => setGraphMode("pan")}>Pan View</button>
-        <button onClick={() => setGraphMode("zoom")}>Box Zoom</button>
+        <button
+          onClick={() => handleSetMode("pan", "Pan View")}
+          style={{
+            fontWeight: selectedMode === "Pan View" ? "bold" : "normal",
+          }}
+        >
+          Pan View
+        </button>
+        <button
+          onClick={() => handleSetMode("zoom", "Box Zoom")}
+          style={{
+            fontWeight: selectedMode === "Box Zoom" ? "bold" : "normal",
+          }}
+        >
+          Box Zoom
+        </button>
+        <button
+          onClick={() => handleSetMode("modify", "Modify")}
+          style={{
+            fontWeight: selectedMode === "Modify" ? "bold" : "normal",
+          }}
+        >
+          Modify
+        </button>
       </div>
       <div style={{ height: "300px" }}>
         <Line
@@ -402,14 +506,46 @@ const LineChart = () => {
           options={chartOptions}
           onClick={handleChartClick}
         />
-        ;
       </div>
+      {showDropdown && (
+        <div
+          style={{
+            position: "absolute",
+            top: dropdownPosition.y,
+            left: dropdownPosition.x,
+            backgroundColor: "white",
+            border: "1px solid gray",
+            borderRadius: "4px",
+            padding: "8px",
+            zIndex: 10,
+          }}
+        >
+          <label>Change Cluster ID:</label>
+          <select
+            onChange={(e) => handleClusterChange(parseInt(e.target.value, 10))}
+            value={selectedSignal?.clusterId || ""}
+          >
+            {Array.from(
+              new Set(
+                chartData.datasets[0].data.map((point) => point.clusterId)
+              )
+            ).map((clusterId) => (
+              <option key={clusterId} value={clusterId}>
+                Cluster {clusterId}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
       <div style={{ marginTop: "1rem" }}>
         {selectedSignal && (
           <>
             <h3>Selected Signal Info:</h3>
             <p>Start Time: {selectedSignal.x}</p>
             <p>Peak to Peak: {selectedSignal.y}</p>
+            <p>Cluster ID: {selectedSignal.clusterId}</p>{" "}
+            {/* Display updated clusterId */}
             <button
               onClick={() =>
                 handleDurationChange(
