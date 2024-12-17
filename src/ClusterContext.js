@@ -1,14 +1,18 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 
+// Create a Context for the cluster data
 const ClusterContext = createContext();
 
+// ClusterProvider component to wrap your application
 export const ClusterProvider = ({ children }) => {
   const [selectedClusters, setSelectedClusters] = useState([]);
   const [clusterNames, setClusterNames] = useState(() => {
-    const savedNames = JSON.parse(localStorage.getItem("clusterNames")) || {};
-    return savedNames;
+    // Load initial cluster names from local storage, or set defaults
+    const savedClusterNames = JSON.parse(localStorage.getItem("clusterNames")) || {};
+    return savedClusterNames;
   });
 
+  // Save cluster names to local storage whenever they change
   useEffect(() => {
     localStorage.setItem("clusterNames", JSON.stringify(clusterNames));
   }, [clusterNames]);
@@ -30,14 +34,19 @@ export const ClusterProvider = ({ children }) => {
     }));
   };
 
+  const getClusterName = (clusterId) => {
+    return clusterNames[clusterId] || `Cluster ${clusterId}`;
+  };
+
   return (
     <ClusterContext.Provider
       value={{
         selectedClusters,
-        clusterNames,
         selectCluster,
         clearClusters,
+        clusterNames,
         renameCluster,
+        getClusterName,
       }}
     >
       {children}
@@ -45,6 +54,5 @@ export const ClusterProvider = ({ children }) => {
   );
 };
 
-export const useClusterContext = () => {
-  return useContext(ClusterContext);
-};
+// Custom hook to use the ClusterContext
+export const useClusterContext = () => useContext(ClusterContext);

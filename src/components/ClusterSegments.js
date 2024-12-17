@@ -1,88 +1,96 @@
 import React, { useEffect, useState } from "react";
 import { Bar } from "react-chartjs-2";
-import Papa from "papaparse";
 import { useClusterContext } from "./ClusterContext";
 import "./ClusterBarChart.css"; // Importing CSS for responsive styles
 
 const ClusterBarChart = () => {
-  const { selectCluster, clearClusters, selectedClusters } = useClusterContext();
+  const { selectCluster, clearClusters, selectedClusters, renameCluster } =
+    useClusterContext();
   const [clusterCounts, setClusterCounts] = useState({});
   const [avgTime, setAvgTime] = useState({});
   const [clusterNames, setClusterNames] = useState({});
-  const [isEditing, setIsEditing] = useState(false);
-  const [editingCluster, setEditingCluster] = useState(null);
 
   const clusterColors = [
-    "rgba(75, 192, 192, 1)",    // Teal
-    "rgba(54, 162, 235, 1)",    // Blue
-    "rgba(255, 99, 132, 1)",    // Red
-    "rgba(255, 206, 86, 1)",    // Yellow
-    "rgba(153, 102, 255, 1)",   // Purple
-    "rgba(255, 159, 64, 1)",    // Orange
-    "rgba(99, 255, 132, 1)",    // Light Green
-    "rgba(102, 153, 255, 1)",   // Light Blue
-    "rgba(255, 102, 178, 1)",   // Pink
-    "rgba(204, 255, 102, 1)",   // Lime
-    "rgba(102, 255, 255, 1)",   // Cyan
-    "rgba(255, 153, 102, 1)"    // Peach
+    // Define cluster colors here
   ];
 
   useEffect(() => {
-    const csvFilePath = `${process.env.PUBLIC_URL}/kmeans_output.csv`;
+    const fetchData = async () => {
+      try {
+        const [dataResponse, kmeansResponse] = await Promise.all([
+          fetch(`${process.env.PUBLIC_URL}/data.json`),
+          fetch(`${process.env.PUBLIC_URL}/kmeans.json`),
+        ]);
+        const data = await dataResponse.json();
+        const kmeans = await kmeansResponse.json();
 
-    fetch(csvFilePath)
-      .then((response) => response.text())
-      .then((csvData) => {
-        Papa.parse(csvData, {
-          header: true,
-          skipEmptyLines: true,
-          complete: (results) => {
-            const counts = {};
-            const times = {};
+        const counts = {};
+        const times = {};
+        console.log("kmeans: ", kmeans);
 
-            results.data.forEach((row) => {
-              const clusterId = parseInt(row.cluster_id, 10);
-              const startTime = row.window_start_time;
-
-              counts[clusterId] = (counts[clusterId] || 0) + 1;
-
-              if (!times[clusterId]) {
-                times[clusterId] = { total: 0, count: 0 };
-              }
-              times[clusterId].total += parseFloat(startTime);
-              times[clusterId].count += 1;
-            });
-
-            const avgTimeData = {};
-            for (const clusterId in times) {
-              avgTimeData[clusterId] =
-                times[clusterId].total / times[clusterId].count;
-            }
-
-            setClusterCounts(counts);
-            setAvgTime(avgTimeData);
-
-            const savedClusterNames = JSON.parse(localStorage.getItem("clusterNames")) || {};
-            const initialClusterNames = Object.keys(counts).reduce((acc, clusterId) => {
-              acc[clusterId] = savedClusterNames[clusterId] || `Cluster ${clusterId}`;
-              return acc;
-            }, {});
-            if(Object.keys(savedClusterNames).length > 0) {
-              setClusterNames(savedClusterNames);
-            } else {
-              setClusterNames(initialClusterNames);
-            }
-          },
+        const rowKeys = Object.keys(kmeans.cluster_id); // Get the indices of rows
+        const rows = rowKeys.map((key) => {
+          return {
+            cluster_id: kmeans.cluster_id[key],
+            window_start_time: kmeans.window_start_time[key],
+            window_end_time: kmeans.window_end_time[key],
+            // Add other properties as needed
+          };
         });
-      });
+
+        // Now `rows` is an array of objects, and you can use `forEach`:
+        rows.forEach((row) => {
+          console.log("--: ", row);
+          const clusterId = row.cluster_id;
+          const startTime = row.window_start_time;
+
+          counts[clusterId] = (counts[clusterId] || 0) + 1;
+
+          if (!times[clusterId]) {
+            times[clusterId] = { total: 0, count: 0 };
+          }
+          times[clusterId].total += parseFloat(startTime);
+          times[clusterId].count += 1;
+        });
+        const avgTimeData = {};
+        for (const clusterId in times) {
+          avgTimeData[clusterId] =
+            times[clusterId].total / times[clusterId].count;
+        }
+
+        setClusterCounts(counts);
+        setAvgTime(avgTimeData);
+
+        const savedClusterNames =
+          JSON.parse(localStorage.getItem("clusterNames")) || {};
+        const initialClusterNames = Object.keys(counts).reduce(
+          (acc, clusterId) => {
+            acc[clusterId] =
+              savedClusterNames[clusterId] || `Cluster ${clusterId}`;
+            return acc;
+          },
+          {}
+        );
+        if (Object.keys(savedClusterNames).length > 0) {
+          setClusterNames(savedClusterNames);
+        } else {
+          setClusterNames(initialClusterNames);
+        }
+      } catch (error) {
+        console.error("Error loading JSON data:", error);
+      }
+    };
+
+    fetchData();
   }, []);
 
   useEffect(() => {
-    if(Object.keys(clusterNames).length > 0) {
+    if (Object.keys(clusterNames).length > 0) {
       localStorage.setItem("clusterNames", JSON.stringify(clusterNames));
     }
   }, [clusterNames]);
 
+  // Helper functions and chart options remain unchanged
   const handleBarClick = (event, elements) => {
     if (elements.length > 0) {
       const index = elements[0].index;
@@ -91,43 +99,28 @@ const ClusterBarChart = () => {
     }
   };
 
-  const getBackgroundColor = (clusterId) => {
-    const baseColor = clusterColors[clusterId % clusterColors.length];
-    if (selectedClusters.length === 0 || selectedClusters.includes(clusterId)) {
-      return baseColor.replace('1)', '0.8)');
+  function getBackgroundColor(clusterId) {
+    if (typeof clusterId !== "number" || isNaN(clusterId)) {
+      console.error("Invalid clusterId:", clusterId);
+      return "transparent"; // Fallback color for invalid input
     }
-    return baseColor.replace('1)', '0.2)');
-  };
+    // Example logic: Return a color based on clusterId
+    return `rgb(${clusterId * 50}, ${clusterId * 30}, ${clusterId * 20})`;
+  }
+  
 
   const getBorderColor = (clusterId) => {
     const baseColor = clusterColors[clusterId % clusterColors.length];
     if (selectedClusters.length === 0 || selectedClusters.includes(clusterId)) {
       return baseColor;
     }
-    return baseColor.replace('1)', '0.4)');
-  };
-
-  const handleButtonClick = (clusterId) => {
-    if (selectedClusters.includes(clusterId)) {
-      selectCluster(clusterId);
-    } else {
-      selectCluster(clusterId);
-    }
-  };
-
-  const handleRightClick = (e, clusterId) => {
-    e.preventDefault();
-    const newName = prompt("Enter new name for the cluster", clusterNames[clusterId]);
-    if (newName) {
-      setClusterNames((prevNames) => ({
-        ...prevNames,
-        [clusterId]: newName,
-      }));
-    }
+    return baseColor.replace("1)", "0.4)");
   };
 
   const segmentChartData = {
-    labels: Object.keys(clusterCounts).map((cluster) => clusterNames[cluster] || `Cluster ${cluster}`),
+    labels: Object.keys(clusterCounts).map(
+      (cluster) => clusterNames[cluster] || `Cluster ${cluster}`
+    ),
     datasets: [
       {
         label: "Number of Segments",
@@ -142,9 +135,11 @@ const ClusterBarChart = () => {
       },
     ],
   };
-  
+
   const avgTimeChartData = {
-    labels: Object.keys(avgTime).map((cluster) => clusterNames[cluster] || `Cluster ${cluster}`),
+    labels: Object.keys(avgTime).map(
+      (cluster) => clusterNames[cluster] || `Cluster ${cluster}`
+    ),
     datasets: [
       {
         label: "Average Duration",
@@ -159,45 +154,32 @@ const ClusterBarChart = () => {
       },
     ],
   };
-  
 
   const options = {
     responsive: true,
     plugins: {
       legend: { display: false },
       tooltip: { enabled: true },
-      datalabels: {
-        display: true,
-        color: 'black',
-        anchor: 'end',
-        align: 'top',
-        formatter: (value) => value.toLocaleString(),
+    },
+    scales: {
+      x: { title: { display: true, text: "Cluster ID" } },
+      y: {
+        title: { display: true, text: "Number of Segments" },
+        beginAtZero: true,
       },
     },
-    scales: {
-      x: { title: { display: true, text: "Cluster ID" } },
-      y: { title: { display: true, text: "Number of Segments" }, beginAtZero: true },
-    },
     onClick: handleBarClick,
-  };
-
-  const avgTimeOptions = {
-    ...options,
-    scales: {
-      x: { title: { display: true, text: "Cluster ID" } },
-      y: { title: { display: true, text: "Average Duration" }, beginAtZero: true },
-    },
   };
 
   return (
     <div>
       <h2>Cluster Distribution</h2>
       <div className="chart-container">
-        <div className="chart"  style={{ height: "350px" }}>
+        <div className="chart" style={{ height: "350px" }}>
           <Bar data={segmentChartData} options={options} />
         </div>
-        <div className="chart"  style={{ height: "350px" }}>
-          <Bar data={avgTimeChartData} options={avgTimeOptions} />
+        <div className="chart" style={{ height: "350px" }}>
+          <Bar data={avgTimeChartData} options={options} />
         </div>
       </div>
 
@@ -208,8 +190,8 @@ const ClusterBarChart = () => {
           return (
             <button
               key={clusterId}
-              onClick={() => handleButtonClick(clusterIdNum)}
-              onContextMenu={(e) => handleRightClick(e, clusterIdNum)}
+              // onClick={() => handleButtonClick(clusterIdNum)}
+              // onContextMenu={(e) => handleRightClick(e, clusterIdNum)}
               style={{
                 backgroundColor: buttonColor,
                 borderColor: getBorderColor(clusterIdNum),
