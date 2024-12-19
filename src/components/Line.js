@@ -476,6 +476,7 @@ const LineChart = () => {
       legend: {
         display: false // Disable the legend
     },
+    
       zoom: {
         pan:
           graphMode === "pan"
