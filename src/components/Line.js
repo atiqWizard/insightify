@@ -17,17 +17,18 @@ ChartJS.register(...registerables, zoomPlugin);
 // ChartJS.register(zoomPlugin);
 
 const LineChart = () => {
-  const { selectedClusters } = useClusterContext();
+  const { selectedClusters, graphData, setGraphData } = useClusterContext();
   // const [yAxisRange, setYAxisRange] = useState([-0.5, 1.0]);
-  const [customYMin, setCustomYMin] = useState(-0.5);
-  const [customYMax, setCustomYMax] = useState(1.0);
-  const [timeRange, setTimeRange] = useState([0, 499]);
+  const [initializedValues, setInitializedValues] = useState([0, 0, 0, 0]);
+  const [YSliderRange, setYSliderRange] = useState([0, 0]);
+  const [customYMin, setCustomYMin] = useState(0);
+  const [customYMax, setCustomYMax] = useState(0);
+  const [timeRange, setTimeRange] = useState([0, 0]);
   const [customTimeStart, setCustomTimeStart] = useState(0);
   const [customTimeEnd, setCustomTimeEnd] = useState(0);
   const [graphMode, setGraphMode] = useState("pan");
   // const [selectedMode, setSelectedMode] = useState("Pan View");
   // const [xSliderRange, setXSliderRange] = useState([0, 0]);
-  const [YSliderRange, setYSliderRange] = useState([0, 0]);
   const [initialized, setInitialized] = useState(false);
   const [startPoint, setStartPoint] = useState(-1);
   const [endPoint, setEndPoint] = useState(-1);
@@ -45,6 +46,9 @@ const LineChart = () => {
     x: { min: undefined, max: undefined },
     y: { min: undefined, max: undefined },
   });
+  const [dataFile, setDataFile] = useState(null);
+  const [kmeansFile, setKmeansFile] = useState(null);
+  const [chartReady, setChartReady] = useState(false);
 
   const { clusterNames } = useClusterContext();
 
@@ -54,161 +58,213 @@ const LineChart = () => {
   const [dropdownPosition, setDropdownPosition] = useState({ x: 0, y: 0 });
 
   useEffect(() => {
-    const fetchJsonData = async () => {
-      try {
-        const [dataResponse, kmeansResponse] = await Promise.all([
-          fetch(`${process.env.PUBLIC_URL}/data.json`),
-          fetch(`${process.env.PUBLIC_URL}/kmeans.json`),
-        ]);
+    // const fetchJsonData = async () => {
+    //   try {
+    //     const [dataResponse, kmeansResponse] = await Promise.all([
+    //       fetch(`${process.env.PUBLIC_URL}/data.json`),
+    //       fetch(`${process.env.PUBLIC_URL}/kmeans.json`),
+    //     ]);
+    //     const [jsonData, kmeansData] = await Promise.all([
+    //       dataResponse.json(),
+    //       kmeansResponse.json(),
+    //     ]);
+    //     const mergedKMeans = mergeKMeansData(kmeansData);
+    //     const newChartData = processChartData(
+    //       // { data: jsonData, kmeans: kmeansData },
+    //       { data: jsonData, kmeans: mergedKMeans },
+    //       // timeRange,
+    //       [customTimeStart, customTimeEnd],
+    //       selectedClusters
+    //     );
+    //     setChartData(newChartData);
+    //     setFilteredData(newChartData);
+    //   } catch (error) {
+    //     console.error("Error fetching data:", error);
+    //   }
+    // };
+    // fetchJsonData();
+    if (kmeansFile && dataFile) {
+      prepareChartData(dataFile, kmeansFile);
+    }
+  }, [selectedClusters]);
 
-        const [jsonData, kmeansData] = await Promise.all([
-          dataResponse.json(),
-          kmeansResponse.json(),
-        ]);
-
-        const newChartData = processChartData(
-          { data: jsonData, kmeans: kmeansData },
-          // timeRange,
-          [customTimeStart, customTimeEnd],
-          selectedClusters
-        );
-
-        setChartData(newChartData);
-        setFilteredData(newChartData);
-      } catch (error) {
-        console.error("Error fetching data:", error);
-      }
+  const mergeKMeansData = (kmeans) => {
+    const mergedData = {
+      window_start_time: {},
+      window_end_time: {},
+      cluster_id: {},
+      cluster_label: {},
+      duration: {},
+      // Keep other attributes unchanged
+      ...Object.fromEntries(
+        Object.entries(kmeans).filter(
+          ([key]) =>
+            ![
+              "window_start_time",
+              "window_end_time",
+              "cluster_id",
+              "duration",
+            ].includes(key)
+        )
+      ),
     };
 
-    fetchJsonData();
-  }, [selectedClusters, customTimeStart, customTimeEnd]);
+    let currentClusterId = null;
+    let currentStartTime = null;
+    let currentIndex = 0;
 
-  const processChartData = (
-    { data, kmeans },
+    for (let i = 0; i < Object.keys(kmeans.cluster_id).length; i++) {
+      const clusterId = kmeans.cluster_id[i];
+      const startTime = kmeans.window_start_time[i];
+      const endTime = kmeans.window_end_time[i];
+
+      if (clusterId !== currentClusterId) {
+        // Finalize the previous segment
+        if (currentClusterId !== null) {
+          mergedData.cluster_id[currentIndex] = currentClusterId;
+          mergedData.cluster_label[currentIndex] =
+            "Cluster " + currentClusterId;
+          mergedData.window_start_time[currentIndex] = currentStartTime;
+          mergedData.window_end_time[currentIndex] =
+            kmeans.window_end_time[i - 1];
+          mergedData.duration[currentIndex] =
+            mergedData.window_end_time[currentIndex] - currentStartTime;
+          currentIndex++;
+        }
+
+        // Start a new segment
+        currentClusterId = clusterId;
+        currentStartTime = startTime;
+      }
+    }
+
+    // Finalize the last segment
+    if (currentClusterId !== null) {
+      mergedData.cluster_id[currentIndex] = currentClusterId;
+      mergedData.window_start_time[currentIndex] = currentStartTime;
+      mergedData.window_end_time[currentIndex] =
+        kmeans.window_end_time[Object.keys(kmeans.cluster_id).length - 1];
+      mergedData.duration[currentIndex] =
+        mergedData.window_end_time[currentIndex] - currentStartTime;
+    }
+
+    return mergedData;
+  };
+
+  const processChartData = ({ data, kmeans }) =>
     // timeRange = null,
-    selectedClusters = []
-  ) => {
-    const SAMPLING_RATE = 64;
-    const TIME_START = 0;
+    // selectedClusters = []
+    {
+      const SAMPLING_RATE = 64;
+      const TIME_START = 0;
 
-    const signalSegment = data;
-    const signalDuration = signalSegment.length / SAMPLING_RATE;
-    const times = signalSegment.map(
-      (_, index) =>
-        TIME_START + (index * signalDuration) / (signalSegment.length - 1)
-    );
-
-    // Extract cluster range data
-    const clusterRanges = Object.keys(kmeans.cluster_id).map((key) => ({
-      clusterId: kmeans.cluster_id[key],
-      startTime: kmeans.window_start_time[key],
-      endTime: kmeans.window_end_time[key],
-    }));
-
-    // Map data points to cluster ranges
-    const dataPoints = signalSegment.map((y, index) => {
-      const cluster = clusterRanges.find(
-        (range) => index >= range.startTime && index < range.endTime
+      const signalSegment = data;
+      const signalDuration = signalSegment.length / SAMPLING_RATE;
+      const times = signalSegment.map(
+        (_, index) =>
+          TIME_START + (index * signalDuration) / (signalSegment.length - 1)
       );
 
-      return {
-        x: index,
-        y: y,
-        id: index.toFixed(4),
-        originalIndex: index,
-        clusterId: cluster ? cluster.clusterId : null, // Assign cluster ID if found
-      };
-    });
+      // Extract cluster range data
+      const clusterRanges = Object.keys(kmeans.cluster_id).map((key) => ({
+        clusterId: kmeans.cluster_id[key],
+        startTime: kmeans.window_start_time[key],
+        endTime: kmeans.window_end_time[key],
+      }));
 
-    // Create labels with intervals based on sampling rate
-    const labels = times.map(
-      (time, index) =>
-        // index % SAMPLING_RATE === 0 ? index : null
-        index
-    );
+      // Map data points to cluster ranges
+      const dataPoints = signalSegment.map((y, index) => {
+        const cluster = clusterRanges.find(
+          (range) => index >= range.startTime && index < range.endTime
+        );
 
-    const clusterColors = [
-      "rgba(75, 192, 192, 1)", // Teal
-      "rgba(54, 162, 235, 1)", // Blue
-      "rgba(255, 99, 132, 1)", // Red
-      "rgba(255, 206, 86, 1)", // Yellow
-      "rgba(153, 102, 255, 1)", // Purple
-      "rgba(255, 159, 64, 1)", // Orange
-      "rgba(99, 255, 132, 1)", // Light Green
-      "rgba(102, 153, 255, 1)", // Light Blue
-      "rgba(255, 102, 178, 1)", // Pink
-      "rgba(204, 255, 102, 1)", // Lime
-      "rgba(102, 255, 255, 1)", // Cyan
-      "rgba(255, 153, 102, 1)", // Peach
-    ];
+        return {
+          x: index,
+          y: y,
+          id: index.toFixed(4),
+          originalIndex: index,
+          clusterId: cluster ? cluster.clusterId : null, // Assign cluster ID if found
+        };
+      });
 
-    const newData = {
-      labels: labels,
-      datasets: [
-        {
-          label: "Peak to Peak with Clusters",
-          data: dataPoints,
-          borderWidth: 2,
-          tension: 0.4,
-          segment: {
-            borderColor: (ctx) => {
-              // Get cluster ID for the starting point of the segment
-              const clusterId = ctx.p0?.raw?.clusterId;
-              return clusterId !== null
-                ? clusterColors[clusterId % clusterColors.length]
-                : "#CCCCCC"; // Default color if no cluster ID
+      // Create labels with intervals based on sampling rate
+      const labels = times.map(
+        (time, index) =>
+          // index % SAMPLING_RATE === 0 ? index : null
+          index
+      );
+
+      const clusterColors = [
+        "rgba(75, 192, 192, 1)", // Teal
+        "rgba(54, 162, 235, 1)", // Blue
+        "rgba(255, 99, 132, 1)", // Red
+        "rgba(255, 206, 86, 1)", // Yellow
+        "rgba(153, 102, 255, 1)", // Purple
+        "rgba(255, 159, 64, 1)", // Orange
+        "rgba(99, 255, 132, 1)", // Light Green
+        "rgba(102, 153, 255, 1)", // Light Blue
+        "rgba(255, 102, 178, 1)", // Pink
+        "rgba(204, 255, 102, 1)", // Lime
+        "rgba(102, 255, 255, 1)", // Cyan
+        "rgba(255, 153, 102, 1)", // Peach
+      ];
+
+      const newData = {
+        labels: labels,
+        datasets: [
+          {
+            label: "Peak to Peak with Clusters",
+            
+            data: dataPoints,
+            borderWidth: 2,
+            tension: 0.4, // Ensure tension is defined here
+            segment: {
+              borderColor: (ctx) => {
+                const clusterId = ctx.p0?.raw?.clusterId; // Get clusterId for the segment
+                const baseColor =
+                  clusterColors[clusterId % clusterColors.length];
+
+                // Apply transparency for non-selected clusters
+                if (
+                  selectedClusters.length === 0 ||
+                  selectedClusters.includes(clusterId)
+                ) {
+                  return baseColor;
+                }
+                return baseColor.replace("1)", "0.2)"); // Fade for non-selected clusters
+              },
             },
+
+            pointRadius: 0,
           },
-          pointRadius: 0,
-        },
-      ],
+        ],
+      };
+
+      let yMin = Infinity;
+      let yMax = -Infinity;
+      const batchSize = 1000;
+
+      for (let i = 0; i < signalSegment.length; i += batchSize) {
+        const batch = signalSegment.slice(i, i + batchSize);
+        yMin = Math.min(yMin, Math.min(...batch));
+        yMax = Math.max(yMax, Math.max(...batch));
+      }
+
+      if (!initialized) {
+        // setYAxisRange([yMin, yMax]);
+        setInitializedValues([yMin, yMax, 0, signalSegment.length]);
+        setCustomYMin(yMin);
+        setCustomYMax(yMax);
+        setCustomTimeStart(0);
+        setCustomTimeEnd(signalSegment.length);
+        // setXSliderRange([0, signalSegment.length]);
+        setYSliderRange([yMin, yMax]);
+        setTimeRange([0, signalSegment.length]);
+        setInitialized(true);
+      }
+
+      return newData;
     };
-
-    let yMin = Infinity;
-    let yMax = -Infinity;
-    const batchSize = 1000;
-
-    for (let i = 0; i < signalSegment.length; i += batchSize) {
-      const batch = signalSegment.slice(i, i + batchSize);
-      yMin = Math.min(yMin, Math.min(...batch));
-      yMax = Math.max(yMax, Math.max(...batch));
-    }
-
-    if (!initialized) {
-      // setYAxisRange([yMin, yMax]);
-      setCustomYMin(yMin);
-      setCustomYMax(yMax);
-      setCustomTimeStart(0);
-      setCustomTimeEnd(signalSegment.length);
-      // setXSliderRange([0, signalSegment.length]);
-      setYSliderRange([yMin, yMax]);
-      setTimeRange([0, signalSegment.length]);
-      setInitialized(true);
-    }
-
-    // if (timeRange) {
-    //   const filteredLabels = newData.labels.slice(
-    //     timeRange[0],
-    //     timeRange[1] + 1
-    //   );
-    //   const filteredDataPoints = newData.datasets[0].data.slice(
-    //     timeRange[0],
-    //     timeRange[1] + 1
-    //   );
-
-    //   return {
-    //     labels: filteredLabels,
-    //     datasets: [
-    //       {
-    //         ...newData.datasets[0],
-    //         data: filteredDataPoints,
-    //       },
-    //     ],
-    //   };
-    // }
-
-    return newData;
-  };
 
   const handleZoomUpdate = () => {
     if (chartRef.current) {
@@ -300,18 +356,15 @@ const LineChart = () => {
 
   const handleClusterChange = (newClusterId) => {
     if (selectedSignal) {
-      // Update the selected signal's clusterId
-      const updatedSignal = { ...selectedSignal, clusterId: newClusterId };
+      // Update the dataset with the new clusterId for the selected range
+      const updatedData = chartData.datasets[0].data.map((point, index) => {
+        if (index >= startPoint && index <= endPoint) {
+          return { ...point, clusterId: newClusterId }; // Update clusterId for the range
+        }
+        return point;
+      });
 
-      setSelectedSignal(updatedSignal); // Update local state
-
-      // Update the dataset with the new clusterId
-      const updatedData = chartData.datasets[0].data.map((point) =>
-        point.x === selectedSignal.x
-          ? { ...point, clusterId: newClusterId } // Update the clusterId
-          : point
-      );
-
+      // Update the chart data state to trigger a re-render
       setChartData((prevChartData) => ({
         ...prevChartData,
         datasets: [
@@ -322,6 +375,7 @@ const LineChart = () => {
         ],
       }));
 
+      // Update the filtered data state to ensure consistent data handling
       setFilteredData((prevChartData) => ({
         ...prevChartData,
         datasets: [
@@ -334,6 +388,12 @@ const LineChart = () => {
 
       // Close the dropdown
       setShowDropdown(false);
+
+      // Update the selectedSignal state to reflect the new clusterId
+      setSelectedSignal((prev) => ({
+        ...prev,
+        clusterId: newClusterId,
+      }));
     }
   };
 
@@ -383,6 +443,10 @@ const LineChart = () => {
   const handleResetZoom = () => {
     if (chartRef.current) {
       chartRef.current.resetZoom();
+      setCustomYMin(initializedValues[0]);
+      setCustomYMax(initializedValues[1]);
+      setCustomTimeStart(initializedValues[2]);
+      setCustomTimeEnd(initializedValues[3]);
     }
   };
 
@@ -391,7 +455,7 @@ const LineChart = () => {
     scales: {
       x: {
         title: {
-          display: true,
+          display: false,
           text: "Window Start Time",
         },
         min:
@@ -401,7 +465,7 @@ const LineChart = () => {
       },
       y: {
         title: {
-          display: true,
+          display: false,
           text: "Peak to Peak",
         },
         min: currentZoom.y.min !== undefined ? currentZoom.y.min : customYMin,
@@ -409,6 +473,9 @@ const LineChart = () => {
       },
     },
     plugins: {
+      legend: {
+        display: false // Disable the legend
+    },
       zoom: {
         pan:
           graphMode === "pan"
@@ -468,7 +535,7 @@ const LineChart = () => {
             type: "line",
             mode: "vertical",
             scaleID: "x",
-            value: endPoint, // X-axis value of the end point
+            value: endPoint + 1, // X-axis value of the end point
             borderColor: "gray",
             borderWidth: 2,
             draggable: true,
@@ -499,78 +566,216 @@ const LineChart = () => {
     const link = document.createElement("a");
     link.href = jsonString;
     link.download = "data.json";
-    // link.click();
+    link.click();
   };
 
-  const handleUploadJSON = (e) => {
+  const resetSignalSelection = () => {
+    setSelectedSignal(null);
+    setStartPoint(-1);
+    setEndPoint(-1);
+  };
+  const handleUploadDataJSON = (e) => {
     const fileReader = new FileReader();
     fileReader.readAsText(e.target.files[0], "UTF-8");
     fileReader.onload = (event) => {
       try {
         const jsonData = JSON.parse(event.target.result);
-        const processedData = processChartData(
-          jsonData,
-          [customTimeStart, customTimeEnd],
-          selectedClusters
-        );
+        setDataFile(jsonData);
 
-        setFilteredData(processedData);
+        if (kmeansFile) {
+          // Process chart data if both files are ready
+          prepareChartData(jsonData, kmeansFile);
+          setChartReady(true);
+        }
       } catch (error) {
-        console.error("Error parsing JSON: ", error);
+        console.error("Error parsing data.json:", error);
       }
     };
+  };
+
+  const handleUploadKmeansJSON = (e) => {
+    const fileReader = new FileReader();
+    fileReader.readAsText(e.target.files[0], "UTF-8");
+    fileReader.onload = (event) => {
+      try {
+        const jsonData = JSON.parse(event.target.result);
+        setKmeansFile(jsonData);
+
+        if (dataFile) {
+          // Process chart data if both files are ready
+          prepareChartData(dataFile, jsonData);
+          setChartReady(true);
+        }
+      } catch (error) {
+        console.error("Error parsing kmeans.json:", error);
+      }
+    };
+  };
+
+  const prepareChartData = (data, kmeans) => {
+    // Merge kmeans data for continuity
+    const mergedKMeans = mergeKMeansData(kmeans);
+
+    // Process the chart data
+    const processedData = processChartData(
+      { data, kmeans: mergedKMeans },
+      [customTimeStart, customTimeEnd],
+      selectedClusters
+    );
+
+    // Update chart data state
+    setChartData(processedData);
+    setFilteredData(processedData);
+    setGraphData([data, kmeans]);
   };
 
   const handleChange = (e) => {
     setSelectedValue(e.target.value);
   };
-
   const handleExpandLeft = () => {
-    setStartPoint((prev) => prev - parseInt(selectedValue, 10));
+    // Find the next cluster on the left
+    const data = chartData.datasets[0].data;
+    let nextClusterIndex = startPoint - 1;
+
+    while (
+      nextClusterIndex >= 0 &&
+      data[nextClusterIndex].clusterId === selectedSignal.clusterId
+    ) {
+      nextClusterIndex--;
+    }
+
+    if (nextClusterIndex >= 0) {
+      const nextClusterStart = nextClusterIndex;
+      let nextClusterEnd = nextClusterIndex;
+
+      // Determine the duration of the next cluster
+      while (
+        nextClusterEnd > 0 &&
+        data[nextClusterEnd - 1].clusterId === data[nextClusterStart].clusterId
+      ) {
+        nextClusterEnd--;
+      }
+
+      const nextClusterDuration = nextClusterStart - nextClusterEnd + 1;
+
+      // Check if expanding would reduce the next cluster's duration below 10
+      if (nextClusterDuration - parseInt(selectedValue, 10) >= 10) {
+        const newStartPoint = Math.max(
+          0,
+          startPoint - parseInt(selectedValue, 10)
+        ); // Ensure it doesn't go below 0
+
+        // Update the dataset
+        const updatedData = data.map((point, index) => {
+          if (index >= newStartPoint && index < startPoint) {
+            return { ...point, clusterId: selectedSignal.clusterId }; // Update clusterId
+          }
+          return point;
+        });
+
+        // Update state
+        setChartData((prevChartData) => ({
+          ...prevChartData,
+          datasets: [
+            {
+              ...prevChartData.datasets[0],
+              data: updatedData,
+            },
+          ],
+        }));
+
+        setFilteredData((prevChartData) => ({
+          ...prevChartData,
+          datasets: [
+            {
+              ...prevChartData.datasets[0],
+              data: updatedData,
+            },
+          ],
+        }));
+
+        setStartPoint(newStartPoint);
+      }
+    }
   };
 
   const handleExpandRight = () => {
-    setEndPoint((prev) => prev + parseInt(selectedValue, 10));
-  };
+    // Find the next cluster on the right
+    const data = chartData.datasets[0].data;
+    let nextClusterIndex = endPoint + 1;
 
+    while (
+      nextClusterIndex < data.length &&
+      data[nextClusterIndex].clusterId === selectedSignal.clusterId
+    ) {
+      nextClusterIndex++;
+    }
+
+    if (nextClusterIndex < data.length) {
+      const nextClusterStart = nextClusterIndex;
+      let nextClusterEnd = nextClusterIndex;
+
+      // Determine the duration of the next cluster
+      while (
+        nextClusterEnd < data.length - 1 &&
+        data[nextClusterEnd + 1].clusterId === data[nextClusterStart].clusterId
+      ) {
+        nextClusterEnd++;
+      }
+
+      const nextClusterDuration = nextClusterEnd - nextClusterStart + 1;
+
+      // Check if expanding would reduce the next cluster's duration below 10
+      if (nextClusterDuration - parseInt(selectedValue, 10) >= 10) {
+        const newEndPoint = Math.min(
+          data.length - 1,
+          endPoint + parseInt(selectedValue, 10)
+        ); // Ensure it doesn't exceed the dataset length
+
+        // Update the dataset
+        const updatedData = data.map((point, index) => {
+          if (index > endPoint && index <= newEndPoint) {
+            return { ...point, clusterId: selectedSignal.clusterId }; // Update clusterId
+          }
+          return point;
+        });
+
+        // Update state
+        setChartData((prevChartData) => ({
+          ...prevChartData,
+          datasets: [
+            {
+              ...prevChartData.datasets[0],
+              data: updatedData,
+            },
+          ],
+        }));
+
+        setFilteredData((prevChartData) => ({
+          ...prevChartData,
+          datasets: [
+            {
+              ...prevChartData.datasets[0],
+              data: updatedData,
+            },
+          ],
+        }));
+
+        setEndPoint(newEndPoint);
+      }
+    }
+  };
 
   return (
     <div>
-      <h2>Peak to Peak Line Chart by Cluster</h2>
       <div
         style={{
           marginBottom: "1rem",
           display: "flex",
           alignItems: "center",
-          gap: "1rem",
+          gap: "0.4rem",
         }}
       >
-        <label>
-          Y-axis Amplitude:
-          <Slider
-            range
-            min={YSliderRange[0]}
-            max={YSliderRange[1]}
-            step={0.1}
-            value={[customYMin, customYMax]}
-            onChange={handleYAxisRangeChange}
-            style={{ width: 300, marginLeft: "1rem", marginRight: "1rem" }}
-          />
-          <input
-            type="number"
-            value={customYMin}
-            onChange={(e) => setCustomYMin(parseFloat(e.target.value))}
-            style={{ width: "70px" }}
-            step="0.1"
-          />
-          <input
-            type="number"
-            value={customYMax}
-            onChange={(e) => setCustomYMax(parseFloat(e.target.value))}
-            style={{ width: "70px", marginLeft: "0.5rem" }}
-            step="0.1"
-          />
-        </label>
         <button onClick={handleResetZoom}>Reset Zoom</button>
         <button
           onClick={() => handleSetMode("pan", "Pan View")}
@@ -588,18 +793,79 @@ const LineChart = () => {
         >
           Box Zoom
         </button>
-        <input type="file" id="input_json" onChange={handleUploadJSON} />
+        {!dataFile && (
+          <>
+            <label>Data Json</label>
+            <input
+              type="file"
+              id="input_json"
+              onChange={handleUploadDataJSON}
+            />
+          </>
+        )}
+        {!kmeansFile && (
+          <>
+            <label>Kmeans Json</label>
+            <input
+              type="file"
+              id="kmeans_json"
+              onChange={handleUploadKmeansJSON}
+            />
+          </>
+        )}
         <button onClick={handleDownloadJSON}>Download JSON</button>
       </div>
-      <div style={{ height: "300px" }}>
-        <Line
-          ref={chartRef}
-          data={filteredData}
-          options={chartOptions}
-          onClick={handleChartClick}
-          // onContextMenu={handleChartClick}
-        />
+
+      <label>Y-axis Amplitude:</label>
+      <div style={{ display: "flex", alignItems: "center", height: "100%" }}>
+        {/* Y-Axis Slider */}
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            marginRight: "1rem",
+          }}
+        >
+          <input
+            type="number"
+            value={customYMax}
+            onChange={(e) => setCustomYMax(parseFloat(e.target.value))}
+            style={{ width: "70px", marginBottom: "0.5rem" }}
+            step="0.1"
+          />
+          <Slider
+            range
+            vertical
+            min={YSliderRange[0]}
+            max={YSliderRange[1]}
+            step={0.1}
+            value={[customYMin, customYMax]}
+            onChange={handleYAxisRangeChange}
+            style={{ height: "200px" }}
+          />
+          <input
+            type="number"
+            value={customYMin}
+            onChange={(e) => setCustomYMin(parseFloat(e.target.value))}
+            style={{ width: "70px", marginTop: "0.5rem" }}
+            step="0.1"
+          />
+        </div>
+
+        {/* Line Chart */}
+        <div style={{ flex: 1, height: "300px" }}>
+          {chartReady && (
+            <Line
+              ref={chartRef}
+              data={filteredData}
+              options={chartOptions}
+              onClick={handleChartClick}
+            />
+          )}
+        </div>
       </div>
+
       {showDropdown && (
         <div
           style={{
@@ -621,106 +887,110 @@ const LineChart = () => {
             {Object.entries(clusterNames).map(([clusterId, clusterName]) => (
               <option key={clusterId}>{clusterName}</option>
             ))}
-            {/* {Array.from(
-              new Set(
-                chartData.datasets[0].data.map((point) => point.clusterId)
-              )
-            ).map((clusterId) => (
-              <option key={clusterId} value={clusterId}>
-                Cluster {clusterId}
-              </option>
-            ))} */}
           </select>
         </div>
       )}
-
-      <div
-        style={{
-          marginTop: "2rem",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: "10rem",
-        }}
-      >
-        {/* Dropdown with label on the left */}
-        <div style={{ display: "flex", alignItems: "center" }}>
-          <label htmlFor="dropdown-left" style={{ marginRight: "0.5rem" }}>
-            Change Cluster:
-          </label>
-          {/* {Object.entries(clusterNames).map(([clusterId, clusterName]) => (
-              <option key={clusterId}>{clusterName}</option>
-            ))} */}
-          {chartData.datasets.length > 0 ? (
-            <select
-              onChange={(e) =>
-                handleClusterChange(parseInt(e.target.value, 10))
-              }
-              value={selectedSignal?.clusterId || ""}
+      {selectedSignal && (
+        <div
+          style={{
+            marginTop: "2rem",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "5rem",
+          }}
+        >
+          {/* Dropdown with label on the left */}
+          <div style={{ display: "flex", alignItems: "center" }}>
+            <button
+              onClick={resetSignalSelection}
+              disabled={!selectedSignal} // Disable if no signal is selected
             >
-              {Array.from(
-                new Set(
-                  chartData.datasets[0].data.map((point) => point.clusterId)
-                )
-              ).map((clusterId) => (
-                <option key={clusterId} value={clusterId}>
-                  Cluster {clusterId}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <select disabled>
-              <option>Loading...</option>
-            </select>
-          )}
-        </div>
+              Remove Signal Selection
+            </button>
+          </div>
+          <div style={{ display: "flex", alignItems: "center" }}>
+            <label htmlFor="dropdown-left" style={{ marginRight: "0.5rem" }}>
+              Change Cluster:
+            </label>
+            {chartData.datasets.length > 0 ? (
+              <select
+                onChange={(e) =>
+                  handleClusterChange(parseInt(e.target.value, 10))
+                }
+                value={selectedSignal?.clusterId || ""}
+                disabled={!selectedSignal} // Disable if no signal is selected
+              >
+                {Array.from(
+                  new Set(
+                    chartData.datasets[0].data.map((point) => point.clusterId)
+                  )
+                ).map((clusterId) => (
+                  <option key={clusterId} value={clusterId}>
+                    Cluster {clusterId}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <select disabled>
+                <option>Loading...</option>
+              </select>
+            )}
+          </div>
 
-        {/* Dropdown with buttons (Decrease & Increase) on the right */}
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          <label htmlFor="dropdown-left" style={{ marginRight: "0.5rem" }}>
-            Expand Segment:
-          </label>
-          <button onClick={handleExpandLeft}>&#8592;</button>
-          <select id="dropdown-right" value={selectedValue} onChange={handleChange}>
-            <option value="1">1</option>
-            <option value="2">2</option>
-            <option value="3">3</option>
-            <option value="4">4</option>
-            <option value="5">5</option>
-            <option value="6">6</option>
-            <option value="7">7</option>
-            <option value="8">8</option>
-            <option value="9">9</option>
-            <option value="10">10</option>
-          </select>
-          <button onClick={handleExpandRight}>&#8594;</button>
+          {/* Dropdown with buttons (Decrease & Increase) on the right */}
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <label htmlFor="dropdown-left" style={{ marginRight: "0.5rem" }}>
+              Expand Segment:
+            </label>
+            <button onClick={handleExpandLeft} disabled={!selectedSignal}>
+              &#8592;
+            </button>
+            <select
+              id="dropdown-right"
+              value={selectedValue}
+              onChange={handleChange}
+              disabled={!selectedSignal} // Disable if no signal is selected
+            >
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
+              <option value="5">5</option>
+              <option value="6">6</option>
+              <option value="7">7</option>
+              <option value="8">8</option>
+              <option value="9">9</option>
+              <option value="10">10</option>
+            </select>
+            <button onClick={handleExpandRight} disabled={!selectedSignal}>
+              &#8594;
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
-      <div style={{ marginTop: "2rem" }}>
-        <label>
-          Time Range:
-          <Slider
-            range
-            min={timeRange[0]}
-            max={timeRange[1]}
-            value={[customTimeStart, customTimeEnd]}
-            onChange={handleTimeRangeChange}
-            style={{ width: "100%", marginTop: "1rem" }}
-          />
-          <input
-            type="number"
-            value={customTimeStart}
-            onChange={handleCustomTimeStartChange}
-            style={{ width: "70px" }}
-          />
-          <input
-            type="number"
-            value={customTimeEnd}
-            onChange={handleCustomTimeEndChange}
-            style={{ width: "70px", marginLeft: "0.5rem" }}
-          />
-        </label>
+      <div style={{ marginTop: "1rem", display: "flex", alignItems: "center", marginBottom: "1rem" }}>
+        <input
+          type="number"
+          value={customTimeStart}
+          onChange={handleCustomTimeStartChange}
+          style={{ width: "70px", marginRight: "0.5rem" }}
+        />
+        <Slider
+          range
+          min={timeRange[0]}
+          max={timeRange[1]}
+          value={[customTimeStart, customTimeEnd]}
+          onChange={handleTimeRangeChange}
+          style={{ flex: 1, margin: "0 1rem" }}
+        />
+        <input
+          type="number"
+          value={customTimeEnd}
+          onChange={handleCustomTimeEndChange}
+          style={{ width: "70px", marginLeft: "0.5rem" }}
+        />
       </div>
     </div>
   );

@@ -3,6 +3,7 @@ import React, { createContext, useContext, useState, useEffect } from "react";
 const ClusterContext = createContext();
 
 export const ClusterProvider = ({ children }) => {
+  const [graphData, setGraphData] = useState([]);
   const [selectedClusters, setSelectedClusters] = useState([]);
   const [clusterNames, setClusterNames] = useState(() => {
     const savedNames = JSON.parse(localStorage.getItem("clusterNames")) || {};
@@ -13,7 +14,11 @@ export const ClusterProvider = ({ children }) => {
     localStorage.setItem("clusterNames", JSON.stringify(clusterNames));
   }, [clusterNames]);
 
-  const selectCluster = (clusterId) => {
+  const selectCluster = (clusterId, resetOthers=false) => {
+    if(resetOthers) {
+      setSelectedClusters([clusterId]);
+      return;
+    }
     setSelectedClusters((prev) =>
       prev.includes(clusterId) ? prev.filter((id) => id !== clusterId) : [...prev, clusterId]
     );
@@ -30,11 +35,17 @@ export const ClusterProvider = ({ children }) => {
     }));
   };
 
+  const setVisualizationData = (data, kmeans) => {
+    setGraphData([data, kmeans])
+  }
+
   return (
     <ClusterContext.Provider
       value={{
         selectedClusters,
         clusterNames,
+        graphData,
+        setGraphData,
         selectCluster,
         clearClusters,
         renameCluster,

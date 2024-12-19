@@ -10,7 +10,7 @@ function App() {
     <ClusterProvider>
       <div style={{margin: '10px 80px'}}>
         <LineChart />
-        {/* <ClusterBarChart /> */}
+        <ClusterBarChart />
       </div>
     </ClusterProvider>
   );

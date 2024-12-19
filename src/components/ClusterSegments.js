@@ -4,29 +4,49 @@ import { useClusterContext } from "./ClusterContext";
 import "./ClusterBarChart.css"; // Importing CSS for responsive styles
 
 const ClusterBarChart = () => {
-  const { selectCluster, clearClusters, selectedClusters, renameCluster } =
-    useClusterContext();
+  const {
+    selectCluster,
+    clearClusters,
+    selectedClusters,
+    renameCluster,
+    graphData,
+  } = useClusterContext();
   const [clusterCounts, setClusterCounts] = useState({});
   const [avgTime, setAvgTime] = useState({});
   const [clusterNames, setClusterNames] = useState({});
 
   const clusterColors = [
-    // Define cluster colors here
+    "rgba(75, 192, 192, 1)", // Teal
+    "rgba(54, 162, 235, 1)", // Blue
+    "rgba(255, 99, 132, 1)", // Red
+    "rgba(255, 206, 86, 1)", // Yellow
+    "rgba(153, 102, 255, 1)", // Purple
+    "rgba(255, 159, 64, 1)", // Orange
+    "rgba(99, 255, 132, 1)", // Light Green
+    "rgba(102, 153, 255, 1)", // Light Blue
+    "rgba(255, 102, 178, 1)", // Pink
+    "rgba(204, 255, 102, 1)", // Lime
+    "rgba(102, 255, 255, 1)", // Cyan
+    "rgba(255, 153, 102, 1)", // Peach
   ];
 
   useEffect(() => {
     const fetchData = async () => {
+      if (graphData.length == 0) {
+        return;
+      }
       try {
-        const [dataResponse, kmeansResponse] = await Promise.all([
-          fetch(`${process.env.PUBLIC_URL}/data.json`),
-          fetch(`${process.env.PUBLIC_URL}/kmeans.json`),
-        ]);
-        const data = await dataResponse.json();
-        const kmeans = await kmeansResponse.json();
+        // const [dataResponse, kmeansResponse] = await Promise.all([
+        //   fetch(`${process.env.PUBLIC_URL}/data.json`),
+        //   fetch(`${process.env.PUBLIC_URL}/kmeans.json`),
+        // ]);
+        // const data = await dataResponse.json();
+        // const kmeans = await kmeansResponse.json();
+        const data = graphData[0];
+        const kmeans = graphData[1];
 
         const counts = {};
         const times = {};
-        console.log("kmeans: ", kmeans);
 
         const rowKeys = Object.keys(kmeans.cluster_id); // Get the indices of rows
         const rows = rowKeys.map((key) => {
@@ -40,7 +60,6 @@ const ClusterBarChart = () => {
 
         // Now `rows` is an array of objects, and you can use `forEach`:
         rows.forEach((row) => {
-          console.log("--: ", row);
           const clusterId = row.cluster_id;
           const startTime = row.window_start_time;
 
@@ -82,7 +101,7 @@ const ClusterBarChart = () => {
     };
 
     fetchData();
-  }, []);
+  }, [graphData]);
 
   useEffect(() => {
     if (Object.keys(clusterNames).length > 0) {
@@ -107,7 +126,6 @@ const ClusterBarChart = () => {
     // Example logic: Return a color based on clusterId
     return `rgb(${clusterId * 50}, ${clusterId * 30}, ${clusterId * 20})`;
   }
-  
 
   const getBorderColor = (clusterId) => {
     const baseColor = clusterColors[clusterId % clusterColors.length];
@@ -126,10 +144,11 @@ const ClusterBarChart = () => {
         label: "Number of Segments",
         data: Object.values(clusterCounts),
         backgroundColor: Object.keys(clusterCounts).map((cluster) =>
-          getBackgroundColor(parseInt(cluster, 10))
+          // getBackgroundColor(parseInt(cluster))
+          getBorderColor(parseInt(cluster))
         ),
         borderColor: Object.keys(clusterCounts).map((cluster) =>
-          getBorderColor(parseInt(cluster, 10))
+          getBorderColor(parseInt(cluster))
         ),
         borderWidth: 1,
       },
@@ -145,10 +164,11 @@ const ClusterBarChart = () => {
         label: "Average Duration",
         data: Object.values(avgTime),
         backgroundColor: Object.keys(avgTime).map((cluster) =>
-          getBackgroundColor(parseInt(cluster, 10))
+          // getBackgroundColor(parseInt(cluster))
+          getBorderColor(parseInt(cluster))
         ),
         borderColor: Object.keys(avgTime).map((cluster) =>
-          getBorderColor(parseInt(cluster, 10))
+          getBorderColor(parseInt(cluster))
         ),
         borderWidth: 1,
       },
@@ -162,9 +182,9 @@ const ClusterBarChart = () => {
       tooltip: { enabled: true },
     },
     scales: {
-      x: { title: { display: true, text: "Cluster ID" } },
+      // x: { title: { display: true, text: "Cluster ID" } },
       y: {
-        title: { display: true, text: "Number of Segments" },
+        // title: { display: true, text: "Number of Segments" },
         beginAtZero: true,
       },
     },
@@ -173,7 +193,6 @@ const ClusterBarChart = () => {
 
   return (
     <div>
-      <h2>Cluster Distribution</h2>
       <div className="chart-container">
         <div className="chart" style={{ height: "350px" }}>
           <Bar data={segmentChartData} options={options} />
@@ -185,12 +204,14 @@ const ClusterBarChart = () => {
 
       <div className="button-container">
         {Object.keys(clusterCounts).map((clusterId) => {
-          const clusterIdNum = parseInt(clusterId, 10);
-          const buttonColor = getBackgroundColor(clusterIdNum);
+          const clusterIdNum = parseInt(clusterId);
+          // const buttonColor = getBackgroundColor(clusterIdNum);
+          const buttonColor =
+            clusterColors[clusterIdNum % clusterColors.length];
           return (
             <button
               key={clusterId}
-              // onClick={() => handleButtonClick(clusterIdNum)}
+              onClick={() => selectCluster(clusterIdNum, true)}
               // onContextMenu={(e) => handleRightClick(e, clusterIdNum)}
               style={{
                 backgroundColor: buttonColor,
