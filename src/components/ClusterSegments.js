@@ -15,6 +15,30 @@ const ClusterBarChart = () => {
   const [avgTime, setAvgTime] = useState({});
   const [clusterNames, setClusterNames] = useState({});
 
+  const [showDialog, setShowDialog] = useState(false);
+  const [currentClusterId, setCurrentClusterId] = useState(null);
+  const [newLabel, setNewLabel] = useState("");
+
+  const handleRightClick = (e, clusterId) => {
+    e.preventDefault();
+    setCurrentClusterId(clusterId);
+    setNewLabel(clusterNames[clusterId] || `Cluster ${clusterId}`);
+    setShowDialog(true);
+  };
+
+  const handleSaveLabel = () => {
+    renameCluster(currentClusterId, newLabel);
+    setShowDialog(false);
+    setCurrentClusterId(null);
+    setNewLabel("");
+  };
+
+  const handleCloseDialog = () => {
+    setShowDialog(false);
+    setCurrentClusterId(null);
+    setNewLabel("");
+  };
+
   const clusterColors = [
     "rgba(75, 192, 192, 1)", // Teal
     "rgba(54, 162, 235, 1)", // Blue
@@ -80,8 +104,7 @@ const ClusterBarChart = () => {
         setClusterCounts(counts);
         setAvgTime(avgTimeData);
 
-        const savedClusterNames =
-          JSON.parse(localStorage.getItem("clusterNames")) || {};
+        const savedClusterNames = {};
         const initialClusterNames = Object.keys(counts).reduce(
           (acc, clusterId) => {
             acc[clusterId] =
@@ -90,11 +113,8 @@ const ClusterBarChart = () => {
           },
           {}
         );
-        if (Object.keys(savedClusterNames).length > 0) {
-          setClusterNames(savedClusterNames);
-        } else {
-          setClusterNames(initialClusterNames);
-        }
+
+        setClusterNames(initialClusterNames);
       } catch (error) {
         console.error("Error loading JSON data:", error);
       }
@@ -102,12 +122,6 @@ const ClusterBarChart = () => {
 
     fetchData();
   }, [graphData]);
-
-  useEffect(() => {
-    if (Object.keys(clusterNames).length > 0) {
-      localStorage.setItem("clusterNames", JSON.stringify(clusterNames));
-    }
-  }, [clusterNames]);
 
   // Helper functions and chart options remain unchanged
   const handleBarClick = (event, elements) => {
@@ -175,16 +189,32 @@ const ClusterBarChart = () => {
     ],
   };
 
-  const options = {
+  const avgTimeOptions = {
     responsive: true,
     plugins: {
       legend: { display: false },
       tooltip: { enabled: true },
     },
     scales: {
-      // x: { title: { display: true, text: "Cluster ID" } },
+      x: { title: { display: true, text: "Cluster" } },
       y: {
-        // title: { display: true, text: "Number of Segments" },
+        title: { display: true, text: "Avg Time" },
+        beginAtZero: true,
+      },
+    },
+    onClick: handleBarClick,
+  };
+
+  const segmentOptions = {
+    responsive: true,
+    plugins: {
+      legend: { display: false },
+      tooltip: { enabled: true },
+    },
+    scales: {
+      x: { title: { display: true, text: "Cluster" } },
+      y: {
+        title: { display: true, text: "Total Segments" },
         beginAtZero: true,
       },
     },
@@ -195,10 +225,10 @@ const ClusterBarChart = () => {
     <div>
       <div className="chart-container">
         <div className="chart" style={{ height: "350px" }}>
-          <Bar data={segmentChartData} options={options} />
+          <Bar data={segmentChartData} options={segmentOptions} />
         </div>
         <div className="chart" style={{ height: "350px" }}>
-          <Bar data={avgTimeChartData} options={options} />
+          <Bar data={avgTimeChartData} options={avgTimeOptions} />
         </div>
       </div>
 
@@ -212,7 +242,7 @@ const ClusterBarChart = () => {
             <button
               key={clusterId}
               onClick={() => selectCluster(clusterIdNum, true)}
-              // onContextMenu={(e) => handleRightClick(e, clusterIdNum)}
+              onContextMenu={(e) => handleRightClick(e, clusterIdNum)}
               style={{
                 backgroundColor: buttonColor,
                 borderColor: getBorderColor(clusterIdNum),
@@ -230,7 +260,7 @@ const ClusterBarChart = () => {
         })}
       </div>
 
-      <div style={{ textAlign: "center", marginTop: "1rem" }}>
+      <div style={{ textAlign: "center" }}>
         <button
           onClick={clearClusters}
           style={{

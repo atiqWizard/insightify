@@ -103,6 +103,7 @@ const LineChart = () => {
               "window_start_time",
               "window_end_time",
               "cluster_id",
+              "cluster_label",
               "duration",
             ].includes(key)
         )
@@ -111,10 +112,12 @@ const LineChart = () => {
 
     let currentClusterId = null;
     let currentStartTime = null;
+    let currentClusterLabel = null;
     let currentIndex = 0;
 
     for (let i = 0; i < Object.keys(kmeans.cluster_id).length; i++) {
       const clusterId = kmeans.cluster_id[i];
+      const clusterLabel = kmeans.cluster_label[i];
       const startTime = kmeans.window_start_time[i];
       const endTime = kmeans.window_end_time[i];
 
@@ -122,8 +125,7 @@ const LineChart = () => {
         // Finalize the previous segment
         if (currentClusterId !== null) {
           mergedData.cluster_id[currentIndex] = currentClusterId;
-          mergedData.cluster_label[currentIndex] =
-            "Cluster " + currentClusterId;
+          mergedData.cluster_label[currentIndex] = currentClusterLabel;
           mergedData.window_start_time[currentIndex] = currentStartTime;
           mergedData.window_end_time[currentIndex] =
             kmeans.window_end_time[i - 1];
@@ -134,6 +136,7 @@ const LineChart = () => {
 
         // Start a new segment
         currentClusterId = clusterId;
+        currentClusterLabel = clusterLabel;
         currentStartTime = startTime;
       }
     }
@@ -141,6 +144,7 @@ const LineChart = () => {
     // Finalize the last segment
     if (currentClusterId !== null) {
       mergedData.cluster_id[currentIndex] = currentClusterId;
+      mergedData.cluster_label[currentIndex] = currentClusterLabel;
       mergedData.window_start_time[currentIndex] = currentStartTime;
       mergedData.window_end_time[currentIndex] =
         kmeans.window_end_time[Object.keys(kmeans.cluster_id).length - 1];
@@ -627,7 +631,7 @@ const LineChart = () => {
     // Update chart data state
     setChartData(processedData);
     setFilteredData(processedData);
-    setGraphData([data, kmeans]);
+    setGraphData([data, mergedKMeans]);
   };
 
   const handleChange = (e) => {

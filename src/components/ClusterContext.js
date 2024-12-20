@@ -6,13 +6,9 @@ export const ClusterProvider = ({ children }) => {
   const [graphData, setGraphData] = useState([]);
   const [selectedClusters, setSelectedClusters] = useState([]);
   const [clusterNames, setClusterNames] = useState(() => {
-    const savedNames = JSON.parse(localStorage.getItem("clusterNames")) || {};
+    const savedNames = {};
     return savedNames;
   });
-
-  useEffect(() => {
-    localStorage.setItem("clusterNames", JSON.stringify(clusterNames));
-  }, [clusterNames]);
 
   const selectCluster = (clusterId, resetOthers=false) => {
     if(resetOthers) {
