@@ -95,6 +95,7 @@ const LineChart = () => {
       cluster_id: {},
       cluster_label: {},
       duration: {},
+      idToLabel: {}, // Add idToLabel to store mapping
       // Keep other attributes unchanged
       ...Object.fromEntries(
         Object.entries(kmeans).filter(
@@ -131,6 +132,7 @@ const LineChart = () => {
             kmeans.window_end_time[i - 1];
           mergedData.duration[currentIndex] =
             mergedData.window_end_time[currentIndex] - currentStartTime;
+          mergedData.idToLabel[currentClusterId] = currentClusterLabel; // Save currentClusterId to label mapping
           currentIndex++;
         }
 
@@ -150,6 +152,7 @@ const LineChart = () => {
         kmeans.window_end_time[Object.keys(kmeans.cluster_id).length - 1];
       mergedData.duration[currentIndex] =
         mergedData.window_end_time[currentIndex] - currentStartTime;
+      mergedData.idToLabel[currentClusterId] = currentClusterLabel; // Save final mapping
     }
 
     return mergedData;
@@ -218,7 +221,7 @@ const LineChart = () => {
         datasets: [
           {
             label: "Peak to Peak with Clusters",
-            
+
             data: dataPoints,
             borderWidth: 2,
             tension: 0.4, // Ensure tension is defined here
@@ -478,9 +481,9 @@ const LineChart = () => {
     },
     plugins: {
       legend: {
-        display: false // Disable the legend
-    },
-    
+        display: false, // Disable the legend
+      },
+
       zoom: {
         pan:
           graphMode === "pan"
@@ -932,7 +935,9 @@ const LineChart = () => {
                   )
                 ).map((clusterId) => (
                   <option key={clusterId} value={clusterId}>
-                    Cluster {clusterId}
+                    {graphData[1].idToLabel[clusterId] ||
+                      `Cluster ${clusterId}`}{" "}
+                    {/* Display cluster label if exists, otherwise fallback to numeric id */}
                   </option>
                 ))}
               </select>
@@ -975,7 +980,14 @@ const LineChart = () => {
         </div>
       )}
 
-      <div style={{ marginTop: "1rem", display: "flex", alignItems: "center", marginBottom: "1rem" }}>
+      <div
+        style={{
+          marginTop: "1rem",
+          display: "flex",
+          alignItems: "center",
+          marginBottom: "1rem",
+        }}
+      >
         <input
           type="number"
           value={customTimeStart}

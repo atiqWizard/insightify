@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { Bar } from "react-chartjs-2";
 import { useClusterContext } from "./ClusterContext";
 import "./ClusterBarChart.css"; // Importing CSS for responsive styles
@@ -10,24 +10,57 @@ const ClusterBarChart = () => {
     selectedClusters,
     renameCluster,
     graphData,
+    setGraphData,
   } = useClusterContext();
   const [clusterCounts, setClusterCounts] = useState({});
   const [avgTime, setAvgTime] = useState({});
-  const [clusterNames, setClusterNames] = useState({});
+  const [clusterLabels, setClusterLabels] = useState({});
+  const [uniqueClusterLabels, setUniqueClusterLabels] = useState([]);
 
   const [showDialog, setShowDialog] = useState(false);
   const [currentClusterId, setCurrentClusterId] = useState(null);
   const [newLabel, setNewLabel] = useState("");
+  const prevLabel = useRef();
 
   const handleRightClick = (e, clusterId) => {
     e.preventDefault();
     setCurrentClusterId(clusterId);
-    setNewLabel(clusterNames[clusterId] || `Cluster ${clusterId}`);
+    // prevLabel.current = e.target.textContent;
+    prevLabel.current = e.target.textContent;
+    setNewLabel(e.target.textContent); // Prepopulate with the current label
     setShowDialog(true);
   };
 
   const handleSaveLabel = () => {
-    renameCluster(currentClusterId, newLabel);
+    if (newLabel.trim()) {
+      // Update the cluster_label for the currentClusterId
+      const updatedClusterLabels = { ...graphData[1].cluster_label };
+      const updatedIdToLabel = { ...graphData[1].idToLabel };
+
+      for (let i = 0; i < Object.keys(updatedClusterLabels).length; i++) {
+        if (updatedClusterLabels[i] === prevLabel.current) {
+          updatedClusterLabels[i] = newLabel; // Update cluster_label
+        }
+      }
+
+      for (let i = 0; i < Object.keys(updatedIdToLabel).length; i++) {
+        if (updatedIdToLabel[i] === prevLabel.current) {
+          updatedIdToLabel[i] = newLabel; // Update idToLabel
+        }
+      }
+
+      // Update the graphData with the modified cluster_label and idToLabel
+      const updatedGraphData = [...graphData];
+      updatedGraphData[1] = {
+        ...graphData[1],
+        cluster_label: updatedClusterLabels,
+        idToLabel: updatedIdToLabel, // Update idToLabel
+      };
+
+      // Set the updated graphData
+      setGraphData(updatedGraphData);
+    }
+
     setShowDialog(false);
     setCurrentClusterId(null);
     setNewLabel("");
@@ -60,14 +93,13 @@ const ClusterBarChart = () => {
         return;
       }
       try {
-        // const [dataResponse, kmeansResponse] = await Promise.all([
-        //   fetch(`${process.env.PUBLIC_URL}/data.json`),
-        //   fetch(`${process.env.PUBLIC_URL}/kmeans.json`),
-        // ]);
-        // const data = await dataResponse.json();
-        // const kmeans = await kmeansResponse.json();
         const data = graphData[0];
         const kmeans = graphData[1];
+        const clusterLabelsData = kmeans.cluster_label;
+
+        // Extract unique cluster labels
+        const uniqueLabels = [...new Set(Object.values(clusterLabelsData))];
+        setUniqueClusterLabels(uniqueLabels);
 
         const counts = {};
         const times = {};
@@ -103,18 +135,6 @@ const ClusterBarChart = () => {
 
         setClusterCounts(counts);
         setAvgTime(avgTimeData);
-
-        const savedClusterNames = {};
-        const initialClusterNames = Object.keys(counts).reduce(
-          (acc, clusterId) => {
-            acc[clusterId] =
-              savedClusterNames[clusterId] || `Cluster ${clusterId}`;
-            return acc;
-          },
-          {}
-        );
-
-        setClusterNames(initialClusterNames);
       } catch (error) {
         console.error("Error loading JSON data:", error);
       }
@@ -151,14 +171,13 @@ const ClusterBarChart = () => {
 
   const segmentChartData = {
     labels: Object.keys(clusterCounts).map(
-      (cluster) => clusterNames[cluster] || `Cluster ${cluster}`
+      (cluster) => graphData[1]?.idToLabel[cluster] || `Cluster ${cluster}`
     ),
     datasets: [
       {
         label: "Number of Segments",
         data: Object.values(clusterCounts),
         backgroundColor: Object.keys(clusterCounts).map((cluster) =>
-          // getBackgroundColor(parseInt(cluster))
           getBorderColor(parseInt(cluster))
         ),
         borderColor: Object.keys(clusterCounts).map((cluster) =>
@@ -171,14 +190,13 @@ const ClusterBarChart = () => {
 
   const avgTimeChartData = {
     labels: Object.keys(avgTime).map(
-      (cluster) => clusterNames[cluster] || `Cluster ${cluster}`
+      (cluster) => graphData[1]?.idToLabel[cluster] || `Cluster ${cluster}`
     ),
     datasets: [
       {
         label: "Average Duration",
         data: Object.values(avgTime),
         backgroundColor: Object.keys(avgTime).map((cluster) =>
-          // getBackgroundColor(parseInt(cluster))
           getBorderColor(parseInt(cluster))
         ),
         borderColor: Object.keys(avgTime).map((cluster) =>
@@ -196,7 +214,7 @@ const ClusterBarChart = () => {
       tooltip: { enabled: true },
     },
     scales: {
-      x: { title: { display: true, text: "Cluster" } },
+      x: { title: { display: false, text: "Cluster" } },
       y: {
         title: { display: true, text: "Avg Time" },
         beginAtZero: true,
@@ -212,7 +230,7 @@ const ClusterBarChart = () => {
       tooltip: { enabled: true },
     },
     scales: {
-      x: { title: { display: true, text: "Cluster" } },
+      x: { title: { display: false, text: "Cluster" } },
       y: {
         title: { display: true, text: "Total Segments" },
         beginAtZero: true,
@@ -233,31 +251,33 @@ const ClusterBarChart = () => {
       </div>
 
       <div className="button-container">
-        {Object.keys(clusterCounts).map((clusterId) => {
-          const clusterIdNum = parseInt(clusterId);
-          // const buttonColor = getBackgroundColor(clusterIdNum);
-          const buttonColor =
-            clusterColors[clusterIdNum % clusterColors.length];
-          return (
-            <button
-              key={clusterId}
-              onClick={() => selectCluster(clusterIdNum, true)}
-              onContextMenu={(e) => handleRightClick(e, clusterIdNum)}
-              style={{
-                backgroundColor: buttonColor,
-                borderColor: getBorderColor(clusterIdNum),
-                borderWidth: "1px",
-                borderRadius: "4px",
-                padding: "8px 16px",
-                margin: "0 5px",
-                cursor: "pointer",
-                color: "white",
-              }}
-            >
-              {clusterNames[clusterId]}
-            </button>
-          );
-        })}
+        {graphData &&
+          graphData[1] &&
+          graphData[1].idToLabel &&
+          Object.keys(graphData[1].idToLabel).map((clusterId) => {
+            const label = graphData[1].idToLabel[clusterId];
+            const color = clusterColors[clusterId % clusterColors.length]; // Use clusterId for correct color assignment
+            return (
+              <button
+                key={label}
+                onClick={() => selectCluster(parseInt(clusterId, 10), true)} // Pass clusterId as an integer
+                onContextMenu={(e) =>
+                  handleRightClick(e, parseInt(clusterId, 10))
+                }
+                style={{
+                  backgroundColor: color,
+                  border: "1px solid #ddd",
+                  borderRadius: "4px",
+                  padding: "8px 16px",
+                  margin: "0 5px",
+                  cursor: "pointer",
+                  color: "white",
+                }}
+              >
+                {label}
+              </button>
+            );
+          })}
       </div>
 
       <div style={{ textAlign: "center" }}>
@@ -275,8 +295,43 @@ const ClusterBarChart = () => {
           Clear Selection
         </button>
       </div>
+      {showDialog && (
+        <div className="dialog-overlay">
+          <div className="dialog">
+            <h3>Rename Cluster</h3>
+            <input
+              type="text"
+              value={newLabel}
+              onChange={(e) => setNewLabel(e.target.value)}
+              placeholder="Enter new cluster label"
+              style={{
+                width: "100%",
+                padding: "8px",
+                marginBottom: "10px",
+                borderRadius: "4px",
+                border: "1px solid #ccc",
+              }}
+            />
+            <div>
+              <button onClick={handleSaveLabel} style={buttonStyle}>
+                Save
+              </button>
+              <button onClick={handleCloseDialog} style={buttonStyle}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
+};
+
+const buttonStyle = {
+  padding: "8px 16px",
+  margin: "0 5px",
+  borderRadius: "4px",
+  cursor: "pointer",
 };
 
 export default ClusterBarChart;

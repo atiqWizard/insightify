@@ -16,7 +16,7 @@
     display: grid;
     grid-template-columns: repeat(4, 1fr);
     gap: 10px;
-    max-width: 400px;
+    max-width: 55%;
     margin: 20px auto; /* Centering the grid */
   }
   
