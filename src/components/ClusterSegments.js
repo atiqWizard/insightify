@@ -92,14 +92,15 @@ const ClusterBarChart = () => {
       if (graphData.length == 0) {
         return;
       }
+      console.log('graphData: ', graphData[1].duration);
       try {
         const data = graphData[0];
         const kmeans = graphData[1];
         const clusterLabelsData = kmeans.cluster_label;
 
         // Extract unique cluster labels
-        const uniqueLabels = [...new Set(Object.values(clusterLabelsData))];
-        setUniqueClusterLabels(uniqueLabels);
+        // const uniqueLabels = [...new Set(Object.values(clusterLabelsData))];
+        // setUniqueClusterLabels(uniqueLabels);
 
         const counts = {};
         const times = {};

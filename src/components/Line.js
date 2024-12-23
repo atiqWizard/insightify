@@ -32,7 +32,7 @@ const LineChart = () => {
   const [initialized, setInitialized] = useState(false);
   const [startPoint, setStartPoint] = useState(-1);
   const [endPoint, setEndPoint] = useState(-1);
-  const [selectedValue, setSelectedValue] = useState("5");
+  const [selectedValue, setSelectedValue] = useState("10");
   const [chartData, setChartData] = useState({
     labels: [],
     datasets: [],
@@ -363,14 +363,31 @@ const LineChart = () => {
 
   const handleClusterChange = (newClusterId) => {
     if (selectedSignal) {
-      // Update the dataset with the new clusterId for the selected range
       const updatedData = chartData.datasets[0].data.map((point, index) => {
         if (index >= startPoint && index <= endPoint) {
           return { ...point, clusterId: newClusterId }; // Update clusterId for the range
         }
         return point;
       });
-
+  
+      const graphData1 = { ...graphData[1] }; // Clone graphData[1] for immutability
+  
+      // Find all indexes where the range overlaps with startPoint and endPoint
+      const selectedIndexes = Object.keys(graphData1.window_start_time)
+        .filter((key) => {
+          const startTime = graphData1.window_start_time[key];
+          const endTime = graphData1.window_end_time[key];
+          return !(endTime <= startPoint || startTime >= endPoint); // Check overlap
+        })
+        .map(Number); // Convert keys to numbers
+  
+      // Update the cluster_id for all selected indexes
+      selectedIndexes.forEach((index) => {
+        graphData1.cluster_id[index] = newClusterId;
+      });
+  
+      setGraphData([graphData[0], graphData1]); // Update state with modified graphData
+  
       // Update the chart data state to trigger a re-render
       setChartData((prevChartData) => ({
         ...prevChartData,
@@ -381,7 +398,7 @@ const LineChart = () => {
           },
         ],
       }));
-
+  
       // Update the filtered data state to ensure consistent data handling
       setFilteredData((prevChartData) => ({
         ...prevChartData,
@@ -392,10 +409,10 @@ const LineChart = () => {
           },
         ],
       }));
-
+  
       // Close the dropdown
       setShowDropdown(false);
-
+  
       // Update the selectedSignal state to reflect the new clusterId
       setSelectedSignal((prev) => ({
         ...prev,
@@ -403,6 +420,8 @@ const LineChart = () => {
       }));
     }
   };
+  
+  
 
   const handleYAxisRangeChange = (value) => {
     // setYAxisRange(value);
@@ -620,13 +639,39 @@ const LineChart = () => {
     };
   };
 
+  // Function to create idToLabel mapping
+  const generateIdToLabelMapping = (kmeans) => {
+    const clusterIds = kmeans.cluster_id;
+    const clusterLabels = kmeans.cluster_label;
+
+    const idToLabel = {};
+
+    // Iterate through the cluster IDs and assign corresponding labels
+    for (const key in clusterIds) {
+      const id = clusterIds[key];
+      const label = clusterLabels[key];
+
+      // Ensure each cluster_id is mapped to only one unique cluster_label
+      if (!idToLabel[id]) {
+        idToLabel[id] = label;
+      }
+    }
+
+    return idToLabel;
+  };
+
   const prepareChartData = (data, kmeans) => {
     // Merge kmeans data for continuity
-    const mergedKMeans = mergeKMeansData(kmeans);
+    // const mergedKMeans = mergeKMeansData(kmeans);
+    kmeans = {
+      ...kmeans, // Spread existing values in kmeans
+      idToLabel: generateIdToLabelMapping(kmeans), // Add idToLabel as a new property
+    };
 
     // Process the chart data
     const processedData = processChartData(
-      { data, kmeans: mergedKMeans },
+      // { data, kmeans: mergedKMeans },
+      { data, kmeans: kmeans },
       [customTimeStart, customTimeEnd],
       selectedClusters
     );
@@ -634,17 +679,20 @@ const LineChart = () => {
     // Update chart data state
     setChartData(processedData);
     setFilteredData(processedData);
-    setGraphData([data, mergedKMeans]);
+    // setGraphData([data, mergedKMeans]);
+    setGraphData([data, kmeans]);
   };
 
   const handleChange = (e) => {
     setSelectedValue(e.target.value);
   };
+
   const handleExpandLeft = () => {
-    // Find the next cluster on the left
     const data = chartData.datasets[0].data;
+    let graphData1 = graphData[1]; // Reference graphData[1]
     let nextClusterIndex = startPoint - 1;
 
+    // Find the next cluster on the left
     while (
       nextClusterIndex >= 0 &&
       data[nextClusterIndex].clusterId === selectedSignal.clusterId
@@ -656,7 +704,6 @@ const LineChart = () => {
       const nextClusterStart = nextClusterIndex;
       let nextClusterEnd = nextClusterIndex;
 
-      // Determine the duration of the next cluster
       while (
         nextClusterEnd > 0 &&
         data[nextClusterEnd - 1].clusterId === data[nextClusterStart].clusterId
@@ -666,22 +713,22 @@ const LineChart = () => {
 
       const nextClusterDuration = nextClusterStart - nextClusterEnd + 1;
 
-      // Check if expanding would reduce the next cluster's duration below 10
       if (nextClusterDuration - parseInt(selectedValue, 10) >= 10) {
         const newStartPoint = Math.max(
           0,
           startPoint - parseInt(selectedValue, 10)
-        ); // Ensure it doesn't go below 0
+        );
 
-        // Update the dataset
+        // Update chartData and filteredData
         const updatedData = data.map((point, index) => {
           if (index >= newStartPoint && index < startPoint) {
-            return { ...point, clusterId: selectedSignal.clusterId }; // Update clusterId
+            // Update clusterId and cluster_label
+            point.clusterId = selectedSignal.clusterId;
+            return { ...point, clusterId: selectedSignal.clusterId };
           }
           return point;
         });
 
-        // Update state
         setChartData((prevChartData) => ({
           ...prevChartData,
           datasets: [
@@ -702,16 +749,40 @@ const LineChart = () => {
           ],
         }));
 
+        // Update graphData1
+        let selectedIndex = Object.keys(graphData[1].window_start_time).find(
+          (key) => graphData1.window_start_time[key] === startPoint
+        );
+
+        selectedIndex = parseInt(selectedIndex);
+
+        // graphData1.window_start_time[selectedIndex] -= parseInt(selectedValue);
+        // graphData1.duration[selectedIndex] =
+        //   graphData1.window_end_time[selectedIndex] -
+        //   graphData1.window_start_time[selectedIndex];
+
+        // graphData1.window_end_time[selectedIndex - 1] -=
+        //   parseInt(selectedValue);
+        // graphData1.duration[selectedIndex - 1] =
+        //   graphData1.window_end_time[selectedIndex - 1] -
+        //   graphData1.window_start_time[selectedIndex - 1];
+
+        graphData1.cluster_id[selectedIndex - 1] = selectedSignal.clusterId;
+
+        setGraphData([graphData[0], graphData1]);
+
+        // Update the startPoint
         setStartPoint(newStartPoint);
       }
     }
   };
 
   const handleExpandRight = () => {
-    // Find the next cluster on the right
     const data = chartData.datasets[0].data;
+    let graphData1 = graphData[1]; // Reference graphData[1]
     let nextClusterIndex = endPoint + 1;
 
+    // Find the next cluster on the right
     while (
       nextClusterIndex < data.length &&
       data[nextClusterIndex].clusterId === selectedSignal.clusterId
@@ -723,7 +794,6 @@ const LineChart = () => {
       const nextClusterStart = nextClusterIndex;
       let nextClusterEnd = nextClusterIndex;
 
-      // Determine the duration of the next cluster
       while (
         nextClusterEnd < data.length - 1 &&
         data[nextClusterEnd + 1].clusterId === data[nextClusterStart].clusterId
@@ -733,22 +803,22 @@ const LineChart = () => {
 
       const nextClusterDuration = nextClusterEnd - nextClusterStart + 1;
 
-      // Check if expanding would reduce the next cluster's duration below 10
       if (nextClusterDuration - parseInt(selectedValue, 10) >= 10) {
         const newEndPoint = Math.min(
           data.length - 1,
           endPoint + parseInt(selectedValue, 10)
-        ); // Ensure it doesn't exceed the dataset length
+        );
 
-        // Update the dataset
+        // Update chartData and filteredData
         const updatedData = data.map((point, index) => {
           if (index > endPoint && index <= newEndPoint) {
-            return { ...point, clusterId: selectedSignal.clusterId }; // Update clusterId
+            // Update clusterId and cluster_label
+            point.clusterId = selectedSignal.clusterId;
+            return { ...point, clusterId: selectedSignal.clusterId };
           }
           return point;
         });
 
-        // Update state
         setChartData((prevChartData) => ({
           ...prevChartData,
           datasets: [
@@ -769,6 +839,29 @@ const LineChart = () => {
           ],
         }));
 
+        // Update graphData1
+        let selectedIndex = Object.keys(graphData[1].window_start_time).find(
+          (key) => graphData1.window_start_time[key] === startPoint
+        );
+
+        selectedIndex = parseInt(selectedIndex);
+
+        // graphData1.window_end_time[selectedIndex] += parseInt(selectedValue);
+        // graphData1.duration[selectedIndex] =
+        //   graphData1.window_end_time[selectedIndex] -
+        //   graphData1.window_start_time[selectedIndex];
+
+        // graphData1.window_start_time[selectedIndex + 1] +=
+        //   parseInt(selectedValue);
+        // graphData1.duration[selectedIndex + 1] =
+        //   graphData1.window_end_time[selectedIndex + 1] -
+        //   graphData1.window_start_time[selectedIndex + 1];
+
+        graphData1.cluster_id[selectedIndex + 1] = selectedSignal.clusterId;
+
+        setGraphData([graphData[0], graphData1]);
+
+        // Update the endPoint
         setEndPoint(newEndPoint);
       }
     }
@@ -923,9 +1016,7 @@ const LineChart = () => {
             </label>
             {chartData.datasets.length > 0 ? (
               <select
-                onChange={(e) =>
-                  handleClusterChange(parseInt(e.target.value, 10))
-                }
+                onChange={(e) => handleClusterChange(parseInt(e.target.value))}
                 value={selectedSignal?.clusterId || ""}
                 disabled={!selectedSignal} // Disable if no signal is selected
               >
@@ -960,7 +1051,8 @@ const LineChart = () => {
               id="dropdown-right"
               value={selectedValue}
               onChange={handleChange}
-              disabled={!selectedSignal} // Disable if no signal is selected
+              disabled={true}
+              // disabled={!selectedSignal} // Disable if no signal is selected
             >
               <option value="1">1</option>
               <option value="2">2</option>
