@@ -72,6 +72,59 @@ const ClusterBarChart = () => {
     setNewLabel("");
   };
 
+  const handleDeleteCluster = () => {
+    // Calculate the new cluster value
+    const newClusterValue = currentClusterId * -100 - 1;
+  
+    // Update graphData[1].idToLabel
+    const updatedIdToLabel = { ...graphData[1].idToLabel };
+    updatedIdToLabel[newClusterValue] = updatedIdToLabel[currentClusterId]; 
+    delete updatedIdToLabel[currentClusterId]; 
+  
+    // Update graphData[1].cluster_id
+    const updatedClusterId = { ...graphData[1].cluster_id };
+    Object.keys(updatedClusterId).forEach((key) => {
+      if (updatedClusterId[key] === currentClusterId) {
+        updatedClusterId[key] = newClusterValue; 
+      }
+    });
+  
+    // Update graphData[0].datasets[0].data
+    const updatedDatasetData = graphData[0].datasets[0].data.map((item) => {
+      if (item.clusterId === currentClusterId) {
+        return {
+          ...item,
+          clusterId: newClusterValue,
+        };
+      }
+      return item; 
+    });
+  
+    // Create a new graphData object with updated values
+    const updatedGraphData = [...graphData];
+    updatedGraphData[1] = {
+      ...graphData[1],
+      idToLabel: updatedIdToLabel,
+      cluster_id: updatedClusterId,
+    };
+    updatedGraphData[0] = {
+      ...graphData[0],
+      datasets: [
+        {
+          ...graphData[0].datasets[0],
+          data: updatedDatasetData, // Replace the dataset data with the updated values
+        },
+      ],
+    };
+  
+    // Update the state with the modified graphData
+    setGraphData(updatedGraphData);
+  
+    // Close the dialog and reset currentClusterId
+    setShowDialog(false);
+    setCurrentClusterId(null);
+  };  
+
   const clusterColors = [
     "rgba(75, 192, 192, 1)", // Teal
     "rgba(54, 162, 235, 1)", // Blue
@@ -92,16 +145,8 @@ const ClusterBarChart = () => {
       if (graphData.length == 0) {
         return;
       }
-      console.log('graphData: ', graphData[1].duration);
       try {
-        const data = graphData[0];
         const kmeans = graphData[1];
-        const clusterLabelsData = kmeans.cluster_label;
-
-        // Extract unique cluster labels
-        // const uniqueLabels = [...new Set(Object.values(clusterLabelsData))];
-        // setUniqueClusterLabels(uniqueLabels);
-
         const counts = {};
         const times = {};
 
@@ -171,9 +216,9 @@ const ClusterBarChart = () => {
   };
 
   const segmentChartData = {
-    labels: Object.keys(clusterCounts).map(
-      (cluster) => graphData[1]?.idToLabel[cluster] || `Cluster ${cluster}`
-    ),
+    labels: Object.keys(clusterCounts)
+      .filter((cluster) => cluster >= 0)
+      .map((cluster) => graphData[1]?.idToLabel[cluster]),
     datasets: [
       {
         label: "Number of Segments",
@@ -190,9 +235,9 @@ const ClusterBarChart = () => {
   };
 
   const avgTimeChartData = {
-    labels: Object.keys(avgTime).map(
-      (cluster) => graphData[1]?.idToLabel[cluster] || `Cluster ${cluster}`
-    ),
+    labels: Object.keys(clusterCounts)
+      .filter((cluster) => cluster >= 0)
+      .map((cluster) => graphData[1]?.idToLabel[cluster]),
     datasets: [
       {
         label: "Average Duration",
@@ -255,30 +300,32 @@ const ClusterBarChart = () => {
         {graphData &&
           graphData[1] &&
           graphData[1].idToLabel &&
-          Object.keys(graphData[1].idToLabel).map((clusterId) => {
-            const label = graphData[1].idToLabel[clusterId];
-            const color = clusterColors[clusterId % clusterColors.length]; // Use clusterId for correct color assignment
-            return (
-              <button
-                key={label}
-                onClick={() => selectCluster(parseInt(clusterId, 10), true)} // Pass clusterId as an integer
-                onContextMenu={(e) =>
-                  handleRightClick(e, parseInt(clusterId, 10))
-                }
-                style={{
-                  backgroundColor: color,
-                  border: "1px solid #ddd",
-                  borderRadius: "4px",
-                  padding: "8px 16px",
-                  margin: "0 5px",
-                  cursor: "pointer",
-                  color: "white",
-                }}
-              >
-                {label}
-              </button>
-            );
-          })}
+          Object.keys(graphData[1].idToLabel)
+            .filter((clusterId) => clusterId > 0) // Filter for values greater than 0
+            .map((clusterId) => {
+              const label = graphData[1].idToLabel[clusterId];
+              const color = clusterColors[clusterId % clusterColors.length]; // Use clusterId for correct color assignment
+              return (
+                <button
+                  key={label}
+                  onClick={() => selectCluster(parseInt(clusterId, 10), true)} // Pass clusterId as an integer
+                  onContextMenu={(e) =>
+                    handleRightClick(e, parseInt(clusterId, 10))
+                  }
+                  style={{
+                    backgroundColor: color,
+                    border: "1px solid #ddd",
+                    borderRadius: "4px",
+                    padding: "8px 16px",
+                    margin: "0 5px",
+                    cursor: "pointer",
+                    color: "white",
+                  }}
+                >
+                  {label}
+                </button>
+              );
+            })}
       </div>
 
       <div style={{ textAlign: "center" }}>
@@ -319,6 +366,17 @@ const ClusterBarChart = () => {
               </button>
               <button onClick={handleCloseDialog} style={buttonStyle}>
                 Cancel
+              </button>
+              <button
+                onClick={handleDeleteCluster}
+                style={{
+                  ...buttonStyle,
+                  backgroundColor: "#ff6b6b",
+                  color: "white",
+                }}
+              >
+                {" "}
+                Delete Cluster
               </button>
             </div>
           </div>
